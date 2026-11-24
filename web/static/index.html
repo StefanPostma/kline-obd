@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OBD live</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f4f5f7; --card: #ffffff; --fg: #151a21; --muted: #5a6473; --line: #d8dce3;
+  --ok: #17784a; --warn: #9a5a00; --bad: #b3261e; --accent: #1f5fd6;
+  --okbg: #e3f4ea; --warnbg: #fdf0d9; --badbg: #fbe4e2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1217; --card: #171d25; --fg: #e8ecf2; --muted: #9aa5b5; --line: #2a3340;
+    --ok: #52c88c; --warn: #f0b35a; --bad: #ff7b72; --accent: #6ea8ff;
+    --okbg: #14301f; --warnbg: #36290f; --badbg: #3b1a18;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 0 0 10px; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+h3 { font-size: 15px; margin: 16px 0 0; }
+#dtc h2 { margin-top: 14px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+.pill { padding: 3px 12px; border-radius: 999px; font-weight: 600; font-size: 13px; border: 1px solid currentColor; }
+.pill.ok { color: var(--ok); background: var(--okbg); } .pill.warn { color: var(--warn); background: var(--warnbg); }
+.pill.bad { color: var(--bad); background: var(--badbg); } .pill.neutral { color: var(--muted); }
+.meta { color: var(--muted); font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--card); color: var(--fg); padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: var(--bg); font-weight: 600; cursor: default; }
+.seg button:disabled:not(.on) { opacity: .55; cursor: default; }
+.demo { background: var(--badbg); color: var(--bad); border: 2px solid var(--bad); border-radius: 10px;
+  padding: 10px 14px; font-weight: 700; margin-bottom: 14px; }
+.statusbox { border-left: 4px solid var(--warn); background: var(--warnbg); padding: 10px 14px;
+  border-radius: 6px; margin-bottom: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; background: var(--card); }
+.card:focus-visible, .card.sel { outline: 2px solid var(--accent); }
+.card[data-level=warn] { border-color: var(--warn); background: var(--warnbg); }
+.card[data-level=bad] { border-color: var(--bad); background: var(--badbg); }
+.card.stale { opacity: .55; }
+.lbl { font-size: 12px; color: var(--muted); min-height: 2.3em; }
+.val { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.unit { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.badge { font-size: 12px; font-weight: 700; }
+.cert { font-size: 11px; color: var(--muted); }
+.windows { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 12px; font-size: 13px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
+.chip.on { border-color: var(--ok); color: var(--ok); background: var(--okbg); font-weight: 600; }
+.card[data-level=ok] .badge { color: var(--ok); } .card[data-level=warn] .badge { color: var(--warn); }
+.card[data-level=bad] .badge { color: var(--bad); }
+.mm { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+canvas.spark { width: 100%; height: 34px; display: block; margin: 3px 0; }
+canvas.big { width: 100%; height: 240px; display: block; }
+ul { list-style: none; padding: 0; margin: 0; }
+li.alert { padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border-left: 4px solid; }
+li.alert.warn { border-color: var(--warn); background: var(--warnbg); }
+li.alert.bad { border-color: var(--bad); background: var(--badbg); }
+li.alert b { display: block; } li.alert span { color: var(--muted); font-size: 13px; }
+.none { color: var(--muted); }
+li.event { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+li.event time { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 70px; }
+li.event button { margin-left: auto; }
+li.event .tag { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--muted); white-space: nowrap; }
+li.event.mark .tag { color: var(--accent); border-color: var(--accent); } li.event.mark .txt { font-weight: 600; }
+li.event.auto .txt { color: var(--muted); }
+button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+  border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
+.mini div { font-size: 12px; color: var(--muted); }
+.mini canvas { width: 100%; height: 90px; display: block; }
+table { border-collapse: collapse; margin-top: 8px; }
+td, th { padding: 3px 14px 3px 0; text-align: left; font-variant-numeric: tabular-nums; vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+#identbtn { margin-top: 8px; }
+.mark { margin-left: auto; font-weight: 700; padding: 10px 18px; border: 2px solid var(--accent); color: var(--accent); }
+.mark.done { background: var(--okbg); border-color: var(--ok); color: var(--ok); }
+kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; margin-left: 6px; opacity: .8; }
+.hint, footer { color: var(--muted); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>OBD live</h1>
+    <span id="pill" class="pill neutral">Starten…</span>
+    <span id="meta" class="meta"></span>
+    <div class="seg" role="group" aria-label="Bron van de metingen">
+      <button data-mode="feed" title="Meekijken met de opname van het uitleesscript; de kabel blijft van dat script">Opname</button>
+      <button data-mode="cable" title="Zelf de kabel gebruiken; kan alleen als geen ander programma hem heeft">Kabel</button>
+    </div>
+    <button id="markbtn" class="mark" title="Bewaart de 8 seconden ervoor en 3 seconden erna">⚑ Nu stotterde hij <kbd>spatiebalk</kbd></button>
+  </header>
+  <div id="demo" class="demo" hidden>DEMO — dit zijn gesimuleerde waarden, geen echte auto.</div>
+  <div id="statusbox" class="statusbox" hidden></div>
+  <div id="srcmsg" class="statusbox" hidden></div>
+  <div id="windows" class="windows" hidden></div>
+
+  <section>
+    <h2>Voertuig / ECU</h2>
+    <div id="ident"><span class="none">Nog niet uitgelezen.</span></div>
+    <button id="identbtn" hidden>Uitgebreide ECU-identificatie (KWP 1A)</button>
+    <span class="hint" id="identmsg"></span>
+  </section>
+
+  <section>
+    <h2>Afwijkingen</h2>
+    <ul id="alerts"></ul>
+  </section>
+
+  <section>
+    <h2>Live waarden</h2>
+    <div id="cards" class="cards"></div>
+  </section>
+
+  <section id="mfrsec" hidden>
+    <h2>Fabrikantsignalen</h2>
+    <div class="hint" style="margin:-6px 0 10px">Uit de ECU-blokken van deze auto. Onder elke waarde staat hoe zeker de betekenis is: ✓ geijkt met een standaard-PID, ≈ past bij het werkplaatshandboek, ? alleen afgeleid uit hoe de waarde beweegt.</div>
+    <div id="cards2" class="cards"></div>
+  </section>
+
+  <section>
+    <h2 id="bigtitle">Grafiek</h2>
+    <canvas id="big" class="big"></canvas>
+    <div class="hint">Laatste 2 minuten. Klik op een kaart om een andere waarde te tonen. Streepjes = vastgelegde momenten.</div>
+  </section>
+
+  <section>
+    <h2>Vastgelegde momenten</h2>
+    <ul id="events"></ul>
+    <div class="hint" id="eventhint">Jouw markeringen zijn leidend. Automatische meldingen zijn indicatief: een toerentalsprong kan ook gewoon optrekken of schakelen zijn, zeker bij één meting per seconde.</div>
+    <div id="eventdetail"></div>
+  </section>
+
+  <section>
+    <h2>Foutcodes</h2>
+    <button id="dtcbtn">Foutcodes lezen</button>
+    <span class="hint" id="dtcmsg"></span>
+    <div id="dtc"></div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const LEVEL = { ok: '✓ OK', warn: '▲ Let op', bad: '✖ Afwijkend' };
+const PILL = { verbonden: ['Verbonden', 'ok'], init: ['Verbinden…', 'neutral'], geen_kabel: ['Geen kabel', 'bad'],
+  geen_echo: ['Geen echo op K-line', 'bad'], geen_ecu: ['ECU antwoordt niet', 'warn'], fout: ['Fout', 'bad'], start: ['Starten…', 'neutral'],
+  schakelen: ['Schakelen…', 'neutral'], meekijken: ['Meekijken met opname', 'ok'], wacht_opname: ['Wacht op opname', 'warn'], opname_stil: ['Opname stil', 'warn'],
+  opname_gestopt: ['Opname afgelopen', 'neutral'] };
+const LIVE = ['verbonden', 'meekijken'];        // toestanden waarin er metingen binnenkomen
+let state = null, hist = {}, selected = 'rpm', srcErr = '';
+const cards = {};
+
+const fmt = (v, d) => (v == null ? '—' : Number(v).toFixed(d));
+const clock = t => new Date(t * 1000).toLocaleTimeString('nl-NL');
+
+function draw(canvas, pts, o = {}) {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const c = canvas.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  const L = o.axes ? 44 : 2, R = 6, T = 6, B = o.axes ? 18 : 2;
+  const xmin = o.xmin, xmax = o.xmax;
+  const data = pts.filter(p => p[0] >= xmin && p[0] <= xmax);
+  const X = x => L + (x - xmin) / (xmax - xmin) * (w - L - R);
+  let lo = Infinity, hi = -Infinity;
+  data.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); });
+  if (!data.length) { lo = 0; hi = 1; }
+  if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const Y = y => T + (1 - (y - lo) / (hi - lo)) * (h - T - B);
+  c.lineWidth = 1; c.font = '11px system-ui'; c.fillStyle = css('--muted'); c.strokeStyle = css('--line');
+  if (o.axes) {
+    const ystep = (hi - lo) / 4;      // genoeg decimalen zodat naburige labels verschillen
+    const dec = Math.max(o.dec ?? 0, ystep >= 5 ? 0 : ystep >= 0.5 ? 1 : Math.min(3, Math.ceil(-Math.log10(ystep)) + 1));
+    for (let i = 0; i <= 4; i++) {
+      const y = lo + ystep * i, py = Y(y);
+      c.beginPath(); c.moveTo(L, py); c.lineTo(w - R, py); c.stroke();
+      c.textAlign = 'right'; c.fillText(y.toFixed(dec), L - 5, py + 4);
+    }
+    c.textAlign = 'center';
+    const xs = o.step || 30;
+    for (let s = Math.ceil(xmin / xs) * xs; s <= xmax; s += xs) c.fillText(s === 0 ? (o.zero || 'nu') : s + ' s', X(s), h - 4);
+  }
+  (o.marks || []).forEach(m => {
+    if (m < xmin || m > xmax) return;
+    c.strokeStyle = css('--bad'); c.setLineDash([4, 3]); c.beginPath(); c.moveTo(X(m), T); c.lineTo(X(m), h - B); c.stroke(); c.setLineDash([]);
+  });
+  if (!data.length) return;
+  c.strokeStyle = css(o.color || '--accent'); c.lineWidth = o.axes ? 1.8 : 1.4; c.beginPath();
+  data.forEach((p, i) => i ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1])));
+  c.stroke();
+}
+
+function renderStatus(s) {
+  const [label, cls] = PILL[s.status.state] || [s.status.state, 'neutral'];
+  const pill = $('#pill'); pill.textContent = label; pill.className = 'pill ' + cls;
+  const st = s.status, parts = [];
+  if (s.profile && s.profile.name !== 'generic-petrol') parts.push(s.profile.label);
+  if (st.port) parts.push(st.port);
+  if (st.proto) parts.push(st.proto === 'kwp' ? 'KWP2000' : 'ISO 9141-2');
+  if (st.method) parts.push(st.method);
+  if (st.keybytes) parts.push('keybytes ' + st.keybytes);
+  if (st.echo === false) parts.push('kabel zonder echo');
+  if (s.link.total) parts.push(`verzoeken ${s.link.ok}/${s.link.total} OK`);
+  if (s.session_secs != null) parts.push(`sessie ${Math.floor(s.session_secs / 60)}:${String(s.session_secs % 60).padStart(2, '0')}`);
+  $('#meta').textContent = parts.join(' · ');
+  $('#demo').hidden = !st.demo;
+  const box = $('#statusbox');
+  box.hidden = st.state === 'verbonden' || (st.feed && st.state === 'meekijken');
+  box.textContent = st.text;
+  const src = s.source || {}, msg = src.error || srcErr;
+  document.querySelectorAll('.seg button').forEach(b => {
+    const on = b.dataset.mode === src.mode;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); b.disabled = on || !!src.switching;
+  });
+  $('#srcmsg').hidden = !msg; $('#srcmsg').textContent = msg || '';
+  const win = $('#windows'), ws = s.windows || [];
+  win.hidden = !ws.length;
+  if (ws.length) {
+    const sig = JSON.stringify(ws);
+    if (win.dataset.sig !== sig) {
+      win.dataset.sig = sig; win.replaceChildren(el('span', 'hint', 'Zelftest-vensters van de ECU:'));
+      ws.forEach(w => { const c = el('span', 'chip' + (w.active ? ' on' : ''), (w.active ? '● ' : '○ ') + w.label); c.title = w.note || ''; win.append(c); });
+    }
+  }
+  $('#dtcbtn').disabled = !!st.feed;            // bij meekijken is de kabel van het uitleesscript
+  if (st.feed) $('#dtcmsg').textContent = ' Niet beschikbaar bij meekijken: de kabel is van het uitleesscript.';
+  else if ($('#dtcmsg').textContent.includes('meekijken')) $('#dtcmsg').textContent = '';
+  $('#foot').textContent = `Log: ${s.log_path} · Ondersteunde PID's: ${s.supported.join(' ') || '—'}`;
+}
+
+let identSig = '';
+function renderIdentity(s) {
+  const id = s.identity, sig = JSON.stringify(id);
+  if (sig === identSig) return;
+  identSig = sig;
+  const box = $('#ident'); box.replaceChildren();
+  $('#identbtn').hidden = !(id && id.protocol.startsWith('KWP'));
+  if (!id) { box.append(el('span', 'none', LIVE.includes(s.status.state) ? 'Wordt uitgelezen…' : 'Nog niet uitgelezen.')); return; }
+  const vin = id.vin
+    ? id.vin + (id.vin_info ? ` — ${id.vin_info.maker}${id.vin_info.year ? ', modeljaar ' + id.vin_info.year : ''}` : '')
+    : 'niet beschikbaar (de ECU levert geen VIN)';
+  const rows = [
+    ['Voertuig (VIN)', vin],
+    ['ECU', [id.ecu_name, id.cal_id && 'kalibratie ' + id.cal_id].filter(Boolean).join(' · ') || 'niet beschikbaar'],
+    ['Protocol', `${id.protocol} · ${id.init} · keybytes ${id.keybytes}`],
+    ['OBD-norm', id.obd_std || 'onbekend'],
+    ['Brandstof', id.fuel || 'onbekend'],
+    ['Profiel', id.profile_label],
+    ['Voertuiginfo (mode 09)', id.mode09.length ? id.mode09.join(' ') : 'niet ondersteund'],
+  ];
+  const t = el('table');
+  rows.forEach(([k, v]) => { const r = el('tr'); r.append(el('th', null, k), el('td', null, v)); t.append(r); });
+  box.append(t);
+  id.notes.forEach(n => box.append(el('div', 'hint', 'ℹ ' + n)));
+  if (id.ecu_ext) {
+    box.append(el('h3', null, 'KWP-identificatie (service 1A)'));
+    const keys = Object.keys(id.ecu_ext);
+    if (!keys.length) { box.append(el('div', 'none', 'De ECU beantwoordt geen van de standaardopties.')); return; }
+    const t2 = el('table');
+    keys.forEach(k => {
+      const r = el('tr'); const e = id.ecu_ext[k];
+      r.append(el('th', null, 'optie ' + k), el('td', null, (e.text ? e.text + '   ' : '') + '[' + e.hex + ']'));
+      t2.append(r);
+    });
+    box.append(t2);
+  }
+}
+
+function renderAlerts(s) {
+  const ul = $('#alerts'); ul.replaceChildren();
+  if (!s.alerts.length) {
+    const n = Object.values(s.values).reduce((a, v) => a + v.n, 0);
+    ul.append(el('li', 'none', LIVE.includes(s.status.state)
+      ? `Geen afwijkingen gevonden in ${n} metingen tot nu toe. Dat sluit stotteren niet uit: wacht op een stotter-moment en kijk dan bij "Vastgelegde momenten".`
+      : 'Nog geen meetdata.'));
+    return;
+  }
+  s.alerts.forEach(a => {
+    const li = el('li', 'alert ' + a.level);
+    li.append(el('b', null, (a.level === 'bad' ? '✖ ' : '▲ ') + a.title), el('span', null, a.detail));
+    ul.append(li);
+  });
+}
+
+const CERT = { pid: '✓ geijkt met standaard-PID', handboek: '≈ past bij handboek', gedrag: '? alleen uit gedrag afgeleid' };
+function renderCards(s) {
+  Object.keys(cards).forEach(k => {             // na een bronwissel: kaarten van waarden die er niet meer zijn weghalen
+    if (!s.values[k] || !s.values[k].card) { cards[k].root.remove(); delete cards[k]; }
+  });
+  $('#mfrsec').hidden = !s.order.some(k => s.values[k].card && s.values[k].group === 'mfr');
+  s.order.filter(k => s.values[k].card).forEach(k => {
+    const v = s.values[k];
+    const box = $(v.group === 'mfr' ? '#cards2' : '#cards');
+    let c = cards[k];
+    if (!c) {
+      const root = el('div', 'card'); root.tabIndex = 0; root.setAttribute('role', 'button');
+      const num = el('span', 'num'), unit = el('span', 'unit');
+      const val = el('div', 'val'); val.append(num, unit);
+      c = cards[k] = { root, lbl: el('div', 'lbl'), num, unit, badge: el('div', 'badge'), spark: el('canvas', 'spark'), mm: el('div', 'mm'), cert: el('div', 'cert') };
+      root.append(c.lbl, val, c.badge, c.spark, c.mm);
+      if (v.group === 'mfr') root.append(c.cert);
+      root.onclick = () => { selected = k; drawAll(); };
+      root.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selected = k; drawAll(); } };
+      box.append(root);
+    }
+    const stale = v.age > (v.stale_after || 10);
+    c.root.dataset.level = stale ? 'ok' : v.level;
+    c.root.classList.toggle('stale', stale);
+    c.root.classList.toggle('sel', k === selected);
+    c.lbl.textContent = v.label;
+    c.root.title = v.note || '';
+    c.cert.textContent = CERT[v.certainty] || '';
+    c.num.textContent = k === 'fuelsys' ? (v.text || '') : fmt(v.v, v.dec);
+    c.num.style.fontSize = k === 'fuelsys' ? '14px' : '';
+    c.unit.textContent = k === 'fuelsys' ? '' : v.unit;
+    c.badge.textContent = stale ? `verouderd (${Math.round(v.age)} s)` : LEVEL[v.level];
+    c.mm.textContent = k === 'fuelsys' ? '' : `min ${fmt(v.min, v.dec)} · gem ${fmt(v.avg, v.dec)} · max ${fmt(v.max, v.dec)}`;
+  });
+}
+
+function drawAll() {
+  if (!state) return;
+  Object.entries(cards).forEach(([k, c]) => {
+    c.root.classList.toggle('sel', k === selected);
+    if (hist[k]) draw(c.spark, hist[k], { xmin: -60, xmax: 0, color: '--accent' });
+  });
+  const v = state.values[selected];
+  $('#bigtitle').textContent = v ? `${v.label} (${v.unit})` : 'Grafiek';
+  draw($('#big'), hist[selected] || [], { xmin: -120, xmax: 0, axes: true, dec: v ? v.dec : 1,
+    marks: state.events.map(e => e.age) });
+}
+
+let eventsSig = '', dtcSig = '';
+function renderEvents(s) {
+  const sig = s.events.map(e => e.id + (e.ready ? 'r' : 'p')).join(',');
+  if (sig === eventsSig) return;      // niet opnieuw opbouwen: anders gaan klikken verloren
+  eventsSig = sig;
+  const ul = $('#events'); ul.replaceChildren();
+  if (!s.events.length) { ul.append(el('li', 'none', 'Nog niets vastgelegd. Zodra het toerental plotseling wegzakt of de brandstofcorrectie ontspoort, wordt dat moment met de omliggende 11 seconden bewaard.')); return; }
+  s.events.slice(0, 30).forEach(e => {
+    const mark = e.kind === 'handmatig';
+    const li = el('li', 'event ' + (mark ? 'mark' : 'auto'));
+    const b = el('button', null, e.ready ? 'Bekijk' : 'Wordt vastgelegd…'); b.disabled = !e.ready;
+    b.onclick = () => showEvent(e.id);
+    li.append(el('time', null, clock(e.t)), el('span', 'tag', mark ? 'jouw markering' : 'automatisch · indicatief'),
+              el('span', 'txt', e.text), b);
+    ul.append(li);
+  });
+}
+
+async function showEvent(id) {
+  const box = $('#eventdetail'); box.replaceChildren();
+  const ev = await (await fetch('/api/event/' + id)).json();
+  box.append(el('h3', null, `Moment ${clock(ev.t)}: ${ev.text}`));
+  const grid = el('div', 'mini'); box.append(grid);
+  const keys = ['rpm', 'map', 'tps', 'stft', 'o2_b1s1', 'ltft', 'ect', 'batt', 'load', ...(state.highlight || [])]
+    .filter(k => ev.series && ev.series[k]);
+  keys.forEach(k => {
+    const cell = el('div'); const m = state.values[k];
+    cell.append(el('div', null, m ? (m.unit ? `${m.label} (${m.unit})` : m.label) : k)); const cv = el('canvas'); cell.append(cv); grid.append(cell);
+    requestAnimationFrame(() => draw(cv, ev.series[k], { xmin: -8, xmax: 3, axes: true, dec: m ? m.dec : 1, marks: [0], step: 2, zero: 'moment', color: '--accent' }));
+  });
+  box.append(el('div', 'hint', (ev.kind === 'handmatig'
+    ? 'Streepje = het moment waarop jij drukte; het stotteren zelf zat meestal 1–5 s eerder, kijk dus links van het streepje. '
+    : 'Streepje = het moment waarop de afwijking werd gezien. ') +
+    'Punten komen ongeveer elke 0,3–1,5 s per waarde binnen; een korte piek kan tussen twee metingen vallen.'));
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderDtc(s) {
+  const sig = s.dtc ? String(s.dtc.read_at) : '';
+  if (sig === dtcSig) return;
+  dtcSig = sig;
+  const box = $('#dtc'); box.replaceChildren();
+  const d = s.dtc; if (!d) return;
+  box.append(el('div', 'hint', 'Gelezen om ' + clock(d.read_at)));
+  if (d.error) box.append(el('div', 'alert warn', d.error));
+  const list = (title, arr) => {
+    box.append(el('h2', null, title));
+    if (!arr.length) { box.append(el('div', 'none', 'Geen.')); return; }
+    const t = el('table'); arr.forEach(x => { const r = el('tr'); r.append(el('td', null, x.code), el('td', null, x.text)); t.append(r); }); box.append(t);
+  };
+  list('Opgeslagen', d.stored); list('In afwachting (pending)', d.pending);
+  if (d.freeze) {
+    box.append(el('h2', null, 'Freeze frame' + (d.freeze.dtc ? ' bij ' + d.freeze.dtc : '')));
+    const t = el('table');
+    Object.entries(d.freeze).filter(([k]) => k !== 'dtc' && k !== 'error').forEach(([k, v]) => {
+      const m = s.values[k], r = el('tr'); r.append(el('td', null, m ? m.label : k), el('td', null, fmt(v, m ? m.dec : 1) + ' ' + (m ? m.unit : '')));
+      t.append(r);
+    });
+    box.append(t);
+  }
+}
+
+async function tickState() {
+  try {
+    const r = await fetch('/api/state'); if (!r.ok) throw new Error(r.status);
+    state = await r.json();
+    renderStatus(state); renderIdentity(state); renderAlerts(state); renderCards(state); renderEvents(state); renderDtc(state); drawAll();
+  } catch (e) {
+    const p = $('#pill'); p.textContent = 'Server niet bereikbaar'; p.className = 'pill bad';
+  }
+}
+async function tickHist() {
+  try { hist = (await (await fetch('/api/history?secs=125')).json()).series; drawAll(); } catch (e) { /* volgende ronde */ }
+}
+document.querySelectorAll('.seg button').forEach(b => b.onclick = async () => {
+  srcErr = '';
+  try {
+    const r = await fetch('/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: b.dataset.mode }) });
+    if (!r.ok) srcErr = (await r.json().catch(() => ({}))).error || 'Schakelen mislukt (' + r.status + ')';
+  } catch (e) { srcErr = 'Server niet bereikbaar'; }
+  tickState();
+});
+$('#dtcbtn').onclick = async () => {
+  $('#dtcmsg').textContent = ' Aangevraagd…';
+  await fetch('/api/dtc', { method: 'POST' });
+  setTimeout(() => $('#dtcmsg').textContent = '', 4000);
+};
+$('#identbtn').onclick = async () => {
+  $('#identmsg').textContent = ' Aangevraagd… (kan enkele seconden duren)';
+  await fetch('/api/identify', { method: 'POST' });
+  setTimeout(() => $('#identmsg').textContent = '', 6000);
+};
+async function mark() {
+  const b = $('#markbtn');
+  try { await fetch('/api/mark', { method: 'POST' }); b.classList.add('done'); b.firstChild.textContent = '✓ Gemarkeerd '; }
+  catch (e) { b.firstChild.textContent = 'Mislukt, probeer opnieuw '; }
+  setTimeout(() => { b.classList.remove('done'); b.firstChild.textContent = '⚑ Nu stotterde hij '; }, 1800);
+}
+$('#markbtn').onclick = mark;
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat && !['BUTTON', 'INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    e.preventDefault(); mark();
+  }
+});
+window.addEventListener('resize', drawAll);
+tickState(); tickHist(); setInterval(tickState, 600); setInterval(tickHist, 1500);
+</script>
+</body>
+</html>

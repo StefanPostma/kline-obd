@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""kline-obd: one entry point for the K-line reader and the web page. Read-only on the car.
+
+    kline-obd [--voertuig NAME] <command> [arguments]
+
+Without a car or cable
+    test                      run all offline self-tests (simulated ECU)
+    web --demo                web page on a simulated ECU, http://127.0.0.1:8777
+    web --replay FILE         replay a recording in the web page (see examples/)
+    rapport FILE              text report of a recording
+    voertuigen                list the vehicle files in vehicles/
+
+With the cable in the OBD port and the ignition on
+    poort                     which serial ports look like the cable
+    scan [FILE]               OBD2 scan: supported PIDs, trouble codes, monitors, live values
+    ident [FILE]              ECU identification and manufacturer data (KWP2000 1A, 18, 21)
+    rit start|stop LABEL      record a drive: status snapshot, recording, comparison and report
+    opname FILE [SECONDS]     record only
+    onrust LABEL [SECONDS]    fast recording of crankshaft roughness per cylinder (Matiz)
+    status LABEL              snapshot of trouble codes, monitors and all data blocks
+    vergelijk LABEL LABEL     compare two snapshots
+    luister [LABEL] [SECONDS] listen passively on the K-line and decode the frames; sends nothing
+    web [--follow]            web page: read through the cable, or follow a running recording
+
+Design stage, refuses every action because no command bytes are known
+    stuur lijst|vraag|status  the command channel for actuator tests
+
+--voertuig NAME picks a file from vehicles/ (default: matiz_m200_08); the web page uses --profile and --signals.
+Only one program can use the cable at a time. Messages of the tools themselves are in Dutch.
+"""
+import glob
+import os
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+READER = os.path.join(ROOT, "reader")
+WEB = os.path.join(ROOT, "web")
+
+SCRIPTS = {
+    "scan": (READER, "obd_scan.py"),
+    "ident": (READER, "ecu_info.py"),
+    "rit": (READER, "rit.py"),
+    "opname": (READER, "egr_capture.py"),
+    "onrust": (READER, "onrust_snel.py"),
+    "status": (READER, "selftest_snapshot.py"),
+    "vergelijk": (READER, "selftest_diff.py"),
+    "rapport": (READER, "rit_report.py"),
+    "luister": (READER, "luister.py"),
+    "stuur": (READER, "stuur.py"),
+    "web": (WEB, "server.py"),
+}
+TESTS = [  # (map, script, wat het dekt)
+    (READER, "selftest.py", "reader: scripts against a simulated ECU"),
+    (os.path.join(ROOT, "tests"), "test_kline_simulator.py", "reader K-line library at wire level, three protocols"),
+    (WEB, "selftest.py", "web: protocols and analysis"),
+    (WEB, "selftest_feed.py", "web: following a recording"),
+    (WEB, "selftest_hub.py", "web: switching between recording and cable"),
+    (WEB, "selftest_cable.py", "web: cable mode with a vehicle read plan"),
+]
+
+
+def run(map_, script, args):
+    # het script neemt de plaats van dit proces in, zodat Ctrl-C en een stopsignaal rechtstreeks bij het script aankomen
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, os.path.join(map_, script)] + args)
+
+
+def poort():
+    sys.path.insert(0, READER)
+    import kline
+    gevonden = kline.poorten()
+    if not gevonden:
+        print("No cable found (looked for /dev/cu.usbserial-* and /dev/ttyUSB*). Set KLINE_PORT to use another port.")
+        return 1
+    for p in gevonden:
+        print(p)
+    return 0
+
+
+def voertuigen():
+    for pad in sorted(glob.glob(os.path.join(ROOT, "vehicles", "*.py"))):
+        naam = os.path.basename(pad)[:-3]
+        titel = next((regel.split("=", 1)[1].strip().strip('"') for regel in open(pad) if regel.startswith("NAAM")), "")
+        print(f"{naam:20s} {titel}")
+    return 0
+
+
+def test():
+    uitslag = []
+    for map_, script, wat in TESTS:
+        print(f"\n=== {wat}  ({os.path.relpath(os.path.join(map_, script), ROOT)}) ===", flush=True)
+        uitslag.append((wat, subprocess.call([sys.executable, script], cwd=map_)))
+    print("\n=== summary ===")
+    for wat, code in uitslag:
+        print(f"  {'ok  ' if code == 0 else 'FAIL'}  {wat}")
+    return 1 if any(code for _, code in uitslag) else 0
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--voertuig"]:
+        if len(args) < 2:
+            sys.exit(__doc__)
+        os.environ["KLINE_VOERTUIG"] = args[1]
+        args = args[2:]
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    cmd, rest = args[0], args[1:]
+    if cmd == "poort":
+        return poort()
+    if cmd == "voertuigen":
+        return voertuigen()
+    if cmd == "test":
+        return test()
+    if cmd in SCRIPTS:
+        return run(*SCRIPTS[cmd], rest)
+    print(f"unknown command: {cmd}\n")
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

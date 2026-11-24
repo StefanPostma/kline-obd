@@ -1,0 +1,42 @@
+{
+ "gestart": 1795522706.6,
+ "script": "egr_capture.py",
+ "ecu": {
+  "onderdeelnummer": "5WY5407A",
+  "software": "KR7714520100",
+  "kalibratie": "8P04B231"
+ },
+ "leesplan": {
+  "kern_blokken": [
+   "01",
+   "0C",
+   "0D",
+   "03",
+   "02"
+  ],
+  "elke_ronde_pid": [
+   "06"
+  ],
+  "roulerend_blokken": [
+   "04",
+   "05",
+   "07",
+   "0B",
+   "0E",
+   "0F",
+   "10",
+   "11",
+   "12",
+   "14",
+   "15"
+  ],
+  "roulerend_pid": [
+   "0D",
+   "03",
+   "07",
+   "05",
+   "04",
+   "0E"
+  ]
+ }
+}

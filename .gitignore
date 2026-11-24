@@ -1,0 +1,28 @@
+# made by the tools: recordings, logs, snapshots (they describe your car; publish them only on purpose)
+recordings/*
+!recordings/.gitkeep
+web/logs/
+*.jsonl
+*.fouten.log
+*.meta.json
+*.markeringen.log
+zelftest_*.json
+luister_*.log
+luister_*.raw
+live.json
+opdrachten/
+# the sample recording is the exception
+!examples/rit_voorbeeld.jsonl
+!examples/rit_voorbeeld.meta.json
+!examples/rit_voorbeeld.markeringen.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# local
+.DS_Store
+# marker of the maintainer's script that assembles this repository from his working folders
+.maak_repo
