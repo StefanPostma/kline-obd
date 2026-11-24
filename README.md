@@ -9,7 +9,7 @@ cable. Three parts:
 - **`web/`** a local web page that shows the values live, follows a recording, and logs the moments you mark;
 - **`vehicles/`** one file per car that says which data to read and what the bytes mean.
 
-Everything is **read-only**: nothing is written to the car, no trouble codes are cleared, no actuator is driven.
+Today everything is **read-only**: nothing is written to the car and no actuator is driven.
 
 ## What has been verified, and what has not
 
@@ -21,6 +21,7 @@ Everything is **read-only**: nothing is written to the car, no trouble codes are
 | The web page's cable mode reading manufacturer blocks | Tested only against the simulator. |
 | macOS, Python 3.9 and 3.14 | Used for all of the above; the self-tests pass on both Python versions. |
 | Linux | Untested. The reader looks for `/dev/ttyUSB*`; the web page needs `--serial /dev/ttyUSB0`. |
+| Clearing trouble codes and resetting the engine light | **Planned, not built yet.** |
 | Actuator tests and writing | **Not built.** A guarded command channel exists as a design (`docs/aansturen-ontwerp.md`), and it refuses every action because the command bytes for this ECU are unknown. |
 
 The meaning of the manufacturer data blocks is not documented by the manufacturer. It was derived from how the values
@@ -103,7 +104,7 @@ identifiers such as `SIGNALEN` and `KERN_BLOKKEN`, and everything in `docs/` and
 ## Safety
 
 - The tools send only read requests: OBD modes 01, 02, 03, 06, 07, 09 and KWP2000 services 1A, 18 and 21, plus
-  StartCommunication and StopCommunication. Clearing trouble codes (mode 04, service 14) is deliberately not built.
+  StartCommunication and StopCommunication.
 - On the Matiz the engine ECU is paired with the immobilizer. Do not send it services you do not understand.
 - `ident` prints the raw identification answer of the ECU. It can contain the ECU's serial number and a VIN: check it
   before you share it. Recordings made by this tool do not contain it.
@@ -119,9 +120,9 @@ Contributions are welcome. What helps most:
 - **Linux**, other cables, and anything in the status table above that says "not tested".
 - Fixes and improvements to the reader, the web page or the docs.
 
-Before you open a pull request, run `./kline-obd test`. Keep the tools read-only: requests that write to the ECU, clear
-codes or drive actuators are out of scope until the command channel has verified commands and its safeguards are tested
-on a bench ECU. Do not include data that identifies one car (VIN, ECU serial number) in files you add.
+Before you open a pull request, run `./kline-obd test`. Anything that changes something on the car must ask for
+confirmation and say what it will do; actuator tests wait until the command channel has verified commands. Do not
+include data that identifies one car (VIN, ECU serial number) in files you add.
 
 ## Support
 

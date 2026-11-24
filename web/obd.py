@@ -1,7 +1,4 @@
 """OBD2 (SAE J1979) services bovenop kwp.KLine: live data (01), freeze frame (02), foutcodes (03/07).
-
-Bewust niet geïmplementeerd: foutcodes wissen (04). Wissen gooit de freeze frame en de
-readiness-status weg; daarmee verlies je juist het bewijs voor het stotteren.
 """
 from kwp import BadFrame, KLineError, Negative, NoResponse
 

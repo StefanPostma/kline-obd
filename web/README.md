@@ -144,7 +144,6 @@ aan `PROFILES` toe. Bij **diesel** staan de benzine-regels (lambda, brandstofcor
 - De init-methoden (`fast-break`, `fast-byte`, `slow-5baud`), de framing en de identificatie zijn getest tegen de
   simulator (`selftest.py`). Op de echte Matiz is `fast-break` gemeten (zie boven); de doorgevoerde timeout-fix in
   `kwp.py` en de 09-00-fix in `obd.py` zijn nog niet op de auto geprobeerd.
-- Foutcodes wissen is bewust niet ingebouwd.
 
 ## Bestanden
 

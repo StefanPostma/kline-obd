@@ -61,6 +61,6 @@ and `CANONICAL`, `TPS`, `HIGHLIGHT` for the web page. The full schema is in the 
    every block in several engine states (ignition on, idle, a steady 2500 rpm, a drive), look at which bytes move with
    what, and check candidates against a standard PID before you trust them. `docs/matiz-m200-08.md` shows how that went
    for the Matiz, including the guesses that turned out wrong.
-3. Send read requests only. Services that write, clear or actuate are out of scope here.
+3. A vehicle file only describes what to read and what it means; it never sends anything by itself.
 4. In the file's docstring, say which car and ECU it is for and whether it was tested on a car. Label each signal
    honestly.
