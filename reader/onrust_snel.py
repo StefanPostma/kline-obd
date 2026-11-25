@@ -27,7 +27,7 @@ except Exception as e:
 
 # onrust per cilinder, toerental/MAP, snelheid/EGR-stuur (uit het voertuigbestand; anders die van de Matiz)
 BLOKKEN = list(getattr(signalen, "SNEL_BLOKKEN", [0x03, 0x0C, 0x02]) if signalen else [0x03, 0x0C, 0x02])
-if not BLOKKEN:
+if not BLOKKEN or getattr(signalen, "TRANSPORT", "kwp2000") != "kwp2000":
     sys.exit("dit voertuigbestand heeft geen SNEL_BLOKKEN: de snelle onrustmeting bestaat alleen voor auto's met zulke blokken")
 
 label = sys.argv[1] if len(sys.argv) > 1 else "snel"

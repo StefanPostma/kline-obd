@@ -62,6 +62,10 @@ class Monitor:
         self.open_serial = open_serial
         # voertuigspecifieke signalen (SignalSet) en leesplan: zonder die leest de kabelmodus alleen standaard-PID's
         self.sigs = signals or signalset.SignalSet()
+        if not self.is_feed:                    # de kabel gaat alleen open voor een transport dat kwp.py spreekt
+            reason = self.sigs.cable_refusal()
+            if reason:
+                raise ValueError(reason)
         self.windows = []
         self.p4 = p4_ms / 1000.0                # pauze tussen tester-bytes (verlagen = sneller, minder veilig)
         self.demo = demo

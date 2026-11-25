@@ -6,6 +6,7 @@ KWP fast init fysiek (Daewoo motor-ECU 0x11), 5-baud init 0x33.
 import sys
 import time
 
+from paden import alleen_kwp
 from kline import KLine, KLineError, hx
 
 ATTEMPTS = [
@@ -14,6 +15,7 @@ ATTEMPTS = [
     ("5-baud init 0x33 (ISO 9141-2)", lambda k: k.slow_init(0x33)),
 ]
 
+alleen_kwp("Het proberen van init-methoden")
 only = int(sys.argv[1]) if len(sys.argv) > 1 else None
 
 k = KLine()

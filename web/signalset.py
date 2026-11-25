@@ -8,7 +8,12 @@ Schema van een signalenbestand (Python-module, bv. vehicles/matiz_m200_08.py):
 
     SIGNALEN = {sleutel: (blok, functie(bytes) -> waarde, eenheid, omschrijving, zekerheid, opmerking)}
     zekerheid:  "pid" (geijkt met een standaard-PID), "handboek" (past bij het werkplaatshandboek),
-                "gedrag" (alleen afgeleid uit hoe de waarde beweegt)
+                "gedrag" (alleen afgeleid uit hoe de waarde beweegt), "firmware" (uit het programma van de ECU
+                gelezen), "aanname" (aangenomen sensorkromme of waarde van een andere auto; nog te meten).
+                Een label dat de pagina niet kent, toont ze als "onbekend label", nooit als niets.
+    TRANSPORT = "kwp2000"               (optioneel, standaard "kwp2000") hoe de uitlezer met de ECU praat. De kabelmodus
+                van de pagina spreekt alleen KWP2000/OBD2 en weigert elk ander transport (bv. "kw1281"); meekijken met
+                een opname (--follow, --replay) werkt voor elk transport.
     BLOKLENGTE = 32                     (optioneel) kortere blokken worden overgeslagen
     vensters(waarden) -> {naam: bool}   (optioneel) bv. "zit de motor in een zelftest-venster van de ECU"
     VENSTER_LABELS = {naam: tekst}      (optioneel)
@@ -36,6 +41,7 @@ import os
 
 import obd
 
+CABLE_TRANSPORT = "kwp2000"                         # het enige transport dat de kabelmodus (kwp.py) spreekt
 UNIT_TEXT = {"C": "°C", "km/u": "km/h"}
 
 
@@ -61,6 +67,7 @@ class SignalSet:
         self.defs, self.block_len, self._vensters, self.window_labels, self.window_notes = {}, 32, None, {}, {}
         self.plan = None                            # leesplan voor de kabelmodus, zie het schema bovenaan
         self.all_blocks = []                        # ALLE_BLOKKEN: alle lokale ID's voor een volledige momentopname
+        self.transport = CABLE_TRANSPORT            # TRANSPORT uit het signalenbestand
         self.error = None
         self.path = os.path.expanduser(signals_path or cfg.get("signals") or "") or None
         if self.path:
@@ -68,6 +75,7 @@ class SignalSet:
                 mod = _load(self.path, log)
                 self.defs = dict(mod.SIGNALEN)
                 self.block_len = getattr(mod, "BLOKLENGTE", 32)
+                self.transport = str(getattr(mod, "TRANSPORT", CABLE_TRANSPORT)).strip().lower() or CABLE_TRANSPORT
                 self._vensters = getattr(mod, "vensters", None)
                 self.window_labels = getattr(mod, "VENSTER_LABELS", {})
                 self.window_notes = getattr(mod, "VENSTER_OPMERKINGEN", {})
@@ -92,6 +100,16 @@ class SignalSet:
                                   "certainty": certainty, "note": note}
         if self.tps_cfg:
             self.meta["tps"] = {"label": "Gaskleppositie (geschat uit sensorspanning)"}
+
+    def cable_refusal(self):
+        """Waarom de kabelmodus dit voertuigbestand niet mag gebruiken, of None als het mag. De kabelmodus (kwp.py) spreekt
+        alleen KWP2000/OBD2 op 10400 baud; bij een ander transport zou hij daarop gaan aanknopen en niets terugkrijgen, en de
+        verzoeken van de pagina (ook het wissen met modus 04) betekenen op zo'n ECU iets anders."""
+        if self.transport == CABLE_TRANSPORT:
+            return None
+        return (f"Dit voertuigbestand gebruikt transport '{self.transport}'. De kabelmodus van de pagina spreekt alleen "
+                f"{CABLE_TRANSPORT.upper()} en stuurt hier niets naar de ECU. Kijk mee met een opname (--follow of --replay) "
+                "van het uitleesscript.")
 
     def _read_plan(self, mod):
         """Leesplan uit het signalenbestand, of None als het bestand er geen heeft. Een blok zonder signaal wordt niet

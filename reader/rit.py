@@ -79,7 +79,15 @@ def stop(label):
         print("Kabel niet aangesloten: status na de rit overgeslagen.")
     print()
     if os.path.exists(f"rit_{label}.jsonl"):
-        subprocess.run([PY, script("rit_report.py"), f"rit_{label}.jsonl"])
+        try:
+            import signalen
+            transport = getattr(signalen, "TRANSPORT", "kwp2000")
+        except Exception:
+            transport = "kwp2000"
+        if transport == "kw1281":
+            subprocess.run([PY, script("kw1281_opname.py"), "--rapport", f"rit_{label}.jsonl"])
+        else:
+            subprocess.run([PY, script("rit_report.py"), f"rit_{label}.jsonl"])
 
 
 args = sys.argv[1:]

@@ -27,6 +27,11 @@ except Exception as e:  # live.json is bijzaak: de opname mag er nooit op stuklo
         sys.exit(f"voertuigbestand laden mislukt: {e}")
     signalen = None
 
+if getattr(signalen, "TRANSPORT", "kwp2000") == "kw1281":
+    import runpy
+    runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "kw1281_opname.py"), run_name="__main__")
+    sys.exit(0)
+
 LIVE = os.path.join(datamap(), "live.json")
 
 

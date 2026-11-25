@@ -28,6 +28,7 @@ Design stage, refuses every action because no command bytes are known
     stuur lijst|vraag|status  the command channel for actuator tests
 
 --voertuig NAME picks a file from vehicles/ (default: matiz_m200_08); the web page uses --profile and --signals.
+For a vehicle that speaks KW1281 (vw_1600i_digifant), opname, rit and status use that transport; scan and ident refuse.
 Only one program can use the cable at a time. Messages of the tools themselves are in Dutch.
 """
 import glob
@@ -55,11 +56,13 @@ SCRIPTS = {
 TESTS = [  # (map, script, wat het dekt)
     (READER, "selftest.py", "reader: scripts against a simulated ECU"),
     (os.path.join(ROOT, "tests"), "test_kline_simulator.py", "reader K-line library at wire level, three protocols"),
+    (READER, "selftest_kw1281.py", "reader: KW1281 transport and the VW 1600i vehicle file, simulated ECU"),
     (WEB, "selftest.py", "web: protocols and analysis"),
     (WEB, "selftest_feed.py", "web: following a recording"),
     (WEB, "selftest_hub.py", "web: switching between recording and cable"),
     (WEB, "selftest_cable.py", "web: cable mode with a vehicle read plan"),
     (WEB, "selftest_clear.py", "web: clearing trouble codes, guarded"),
+    (WEB, "selftest_transport.py", "web: other transports are refused in cable mode, certainty labels"),
 ]
 
 

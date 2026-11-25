@@ -172,9 +172,21 @@ def main():
         return analyzer.Monitor(make_opener(args), args.log_dir, demo=args.demo, profile=args.profile,
                                 probe_ident=args.probe_ident, p4_ms=args.p4_ms, signals=sigs, log=log)
 
+    def cable_check():
+        # mag de kabelmodus dit voertuigbestand gebruiken? (alleen KWP2000/OBD2; zie signalset.cable_refusal)
+        if args.demo:
+            return None
+        cfg = vehicle.PROFILES[vehicle.pick_profile(args.profile)].get("feed", {})
+        return signalset.SignalSet(cfg, args.signals, log=lambda *a: None).cable_refusal()
+
     # begin met meekijken als --follow/--replay is opgegeven, anders met de kabel; de pagina kan wisselen
-    mon = hub.Hub(make_feed, make_cable, "feed" if args.follow or args.replay else "cable",
-                  holder=(lambda: None) if args.demo else hub.cable_holder, log=log)
+    start_mode = "feed" if args.follow or args.replay else "cable"
+    refusal = cable_check() if start_mode == "cable" else None
+    if refusal:
+        log(f"{refusal}\nStart met --follow <opname> of --replay <opname>.")
+        sys.exit(2)
+    mon = hub.Hub(make_feed, make_cable, start_mode,
+                  holder=(lambda: None) if args.demo else hub.cable_holder, log=log, cable_check=cable_check)
     Handler.monitor, Handler.port = mon, args.http_port
     mon.start()
     srv = ThreadingHTTPServer(("127.0.0.1", args.http_port), Handler)

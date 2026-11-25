@@ -6,6 +6,7 @@ import json
 import sys
 import time
 
+from paden import alleen_kwp
 from kline import KLine, KLineError, NegativeResponse, hx
 
 PIDS = {
@@ -82,6 +83,7 @@ def supported(k, mode):
     return sorted(pids)
 
 
+alleen_kwp("De OBD2-scan")
 result = {}
 k = KLine()
 try:

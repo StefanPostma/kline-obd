@@ -27,7 +27,7 @@ Eén JSON-regel per ronde:
 | --- | --- |
 | `t` | seconden sinds het begin van de opname |
 | `e` | kloktijd als epoch (mag ontbreken in oude opnames) |
-| `<blok>` | twee hexcijfers: het antwoord op KWP2000 `21 <blok>` zonder de kop `61 <blok>` |
+| `<blok>` | twee hexcijfers: het antwoord op KWP2000 `21 <blok>` zonder de kop `61 <blok>`. Bij een ander transport (KW1281) is het de sleutel van een benoemde lezing uit het voertuigbestand (`LEZINGEN`), met de data van het antwoord; zo'n blok is 4 of 10 bytes |
 | `pid<XX>` | het antwoord op OBD2 `01 <XX>` zonder de kop `41 <XX>` |
 
 Een ontbrekende sleutel betekent dat dat verzoek in die ronde is mislukt, ook na één herhaling. Regels zonder `t` slaat

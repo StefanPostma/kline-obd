@@ -1,9 +1,9 @@
 """Momentopname van de ECU vóór en na het wissen van foutcodes (alleen leesverzoeken).
 
-Het resultaat heeft het schema van `zelftest_<label>.json` van de uitleessessie (reader/selftest_snapshot.py), zodat
+Het resultaat heeft het schema van `zelftest_<label>.json` van de uitlezer (reader/selftest_snapshot.py), zodat
 `selftest_diff.py` er twee naast elkaar kan leggen. Sleutels: label, time, pid01, mil, dtc_count, monitors, stored,
 pending, freeze_dtc, mode06 {tid: [hex]}, live_raw {fuelsys, ect, ltft, stft, rpm, map, mil_km}, dtc18, blocks
-{"01": [hex, hex, hex], ...}. Toegevoegd mag altijd, hernoemen meldt die sessie eerst op het bord: wij voegen toe
+{"01": [hex, hex, hex], ...}. Toegevoegd mag altijd, hernoemen gebeurt alleen in overleg: wij voegen toe
 `fouten` (wat niet gelezen kon worden) en `bron`.
 
 Essentieel is wat een wissing onbeslist zou laten: PID 01 01 (MIL/readiness) en mode 03 (opgeslagen codes). Lukt dat niet,

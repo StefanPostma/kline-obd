@@ -20,6 +20,10 @@ except Exception as e:
     if os.environ.get("KLINE_VOERTUIG"):
         sys.exit(f"voertuigbestand laden mislukt: {e}")
     signalen = None
+if getattr(signalen, "TRANSPORT", "kwp2000") == "kw1281":  # ander transport: een eigen momentopname, zelfde bestandsvorm
+    import runpy
+    runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "kw1281_status.py"), run_name="__main__")
+    sys.exit(0)
 AANKNOPEN = tuple(getattr(signalen, "AANKNOPEN", None) or ("fast",))
 # lokale ID's voor de momentopname; zonder voertuigbestand die van de Matiz, een auto zonder blokken geeft een lege lijst
 ALLE_BLOKKEN = list(getattr(signalen, "ALLE_BLOKKEN", range(0x01, 0x18)) if signalen else range(0x01, 0x18))

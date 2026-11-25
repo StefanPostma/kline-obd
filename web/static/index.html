@@ -103,7 +103,7 @@ kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-rad
     <span id="meta" class="meta"></span>
     <div class="seg" role="group" aria-label="Bron van de metingen">
       <button data-mode="feed" title="Meekijken met de opname van het uitleesscript; de kabel blijft van dat script">Opname</button>
-      <button data-mode="cable" title="Zelf de kabel gebruiken; kan alleen als geen ander programma hem heeft">Kabel</button>
+      <button data-mode="cable" title="Zelf de kabel gebruiken; kan alleen als geen ander programma hem heeft. Voor auto's met OBD2/KWP2000 (10400 baud). Na een mislukte fast init probeert de pagina een 5-baud-init op adres 0x33. Een ECU met een ander protocol, zoals de Digifant van een VW 1600i (KW1281), krijgt daar geen antwoord op en loopt volgens het programma van die ECU geen schade op (niet op een echte ECU getest). Kijk bij zo'n auto mee met een opname.">Kabel</button>
     </div>
     <button id="markbtn" class="mark" title="Annoteert dit moment als probleem: bewaart de 8 seconden ervoor en 3 seconden erna">⚑ Annotatie: probleem <kbd>spatiebalk</kbd></button>
   </header>
@@ -131,7 +131,7 @@ kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-rad
 
   <section id="mfrsec" hidden>
     <h2>Fabrikantsignalen</h2>
-    <div class="hint" style="margin:-6px 0 10px">Uit de ECU-blokken van deze auto. Onder elke waarde staat hoe zeker de betekenis is: ✓ geijkt met een standaard-PID, ≈ past bij het werkplaatshandboek, ? alleen afgeleid uit hoe de waarde beweegt.</div>
+    <div class="hint" style="margin:-6px 0 10px">Uit de ECU-blokken van deze auto. Onder elke waarde staat hoe zeker de betekenis is: ✓ geijkt met een standaard-PID, ≈ past bij het werkplaatshandboek, ? alleen afgeleid uit hoe de waarde beweegt, ◇ uit het programma van de ECU gelezen, ⚠ aangenomen en nog te meten.</div>
     <div id="cards2" class="cards"></div>
   </section>
 
@@ -311,7 +311,10 @@ function renderAlerts(s) {
   });
 }
 
-const CERT = { pid: '✓ geijkt met standaard-PID', handboek: '≈ past bij handboek', gedrag: '? alleen uit gedrag afgeleid' };
+const CERT = { pid: '✓ geijkt met standaard-PID', handboek: '≈ past bij handboek', gedrag: '? alleen uit gedrag afgeleid',
+               firmware: '◇ uit de ECU-firmware gelezen, nog niet gemeten', aanname: '⚠ aangenomen, nog te meten' };
+// een label dat deze lijst niet kent mag nooit als "geen voorbehoud" op het scherm komen: toon het als onbekend
+const certText = c => (c ? (CERT[c] || `? onbekend zekerheidslabel (${c})`) : '');
 function renderCards(s) {
   Object.keys(cards).forEach(k => {             // na een bronwissel: kaarten van waarden die er niet meer zijn weghalen
     if (!s.values[k] || !s.values[k].card) { cards[k].root.remove(); delete cards[k]; }
@@ -338,7 +341,7 @@ function renderCards(s) {
     c.root.classList.toggle('sel', k === selected);
     c.lbl.textContent = v.label;
     c.root.title = v.note || '';
-    c.cert.textContent = CERT[v.certainty] || '';
+    c.cert.textContent = certText(v.certainty);
     c.num.textContent = k === 'fuelsys' ? (v.text || '') : fmt(v.v, v.dec);
     c.num.style.fontSize = k === 'fuelsys' ? '14px' : '';
     c.unit.textContent = k === 'fuelsys' ? '' : v.unit;

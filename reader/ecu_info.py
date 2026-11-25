@@ -6,6 +6,7 @@ en 21 (ReadDataByLocalIdentifier). Geen schrijf-, wis- of aanstuurservices.
 import json
 import sys
 
+from paden import alleen_kwp
 from kline import KLine, KLineError, NegativeResponse, hx
 
 
@@ -13,6 +14,7 @@ def ascii_of(b):
     return "".join(chr(c) if 32 <= c < 127 else "." for c in b)
 
 
+alleen_kwp("De identificatie- en blokkenscan")
 result = {"mode06": {}, "mode09": {}, "ident": {}, "local": {}, "neg": {}}
 k = KLine()
 try:

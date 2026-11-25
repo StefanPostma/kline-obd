@@ -37,10 +37,11 @@ def cable_holder(pattern="/dev/cu.usbserial-*"):
 class Hub:
     """Zelfde methoden als analyzer.Monitor (snapshot, history, event_detail, ...), plus schakelen."""
 
-    def __init__(self, make_feed, make_cable, mode, holder=cable_holder, log=print):
+    def __init__(self, make_feed, make_cable, mode, holder=cable_holder, log=print, cable_check=None):
         self.make = {"feed": make_feed, "cable": make_cable}
         self.mode = mode
         self.holder = holder
+        self.cable_check = cable_check or (lambda: None)   # tekst als de kabel voor dit voertuigbestand niet mag, anders None
         self.log = log
         self.mon = None
         self.switching = None
@@ -53,6 +54,9 @@ class Hub:
 
     def start(self):
         if self.mode == "cable":
+            refusal = self.cable_check()
+            if refusal:
+                raise RuntimeError(refusal)
             who = self.holder()
             if who:
                 self.log(f"LET OP: de kabel is al in gebruik door {who}")
@@ -76,6 +80,10 @@ class Hub:
             if getattr(self.mon, "clear", {}).get("phase") in ("preparing", "clearing"):
                 return 409, {"error": "Er loopt een actie op de ECU (foutcodes wissen); wacht tot die klaar is."}
             if mode == "cable":
+                refusal = self.cable_check()            # vóór het stoppen van de lopende bron: het meekijken blijft draaien
+                if refusal:
+                    self.error = refusal
+                    return 409, {"error": refusal}
                 who = self.holder()
                 if who:
                     self.error = (f"De kabel is in gebruik door {who}. Stop dat eerst, of blijf bij meekijken "

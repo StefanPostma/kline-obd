@@ -17,6 +17,7 @@ snapshot and a two-step confirmation. Nothing else is written to the car and no 
 | | Status |
 | --- | --- |
 | Chevrolet/Daewoo Matiz M200 0.8 (2009, Siemens Sirius D32 ECU `5WY5407A`) | **Tested on the car.** Fast init, OBD modes 01/02/03/06/07/09, KWP2000 services 1A, 18 and 21 (manufacturer data blocks). Several recorded drives; on an 18-minute drive 3 of 6097 requests were lost (a failed request is retried once). |
+| VW 1600i (Mexican Beetle), Digifant ECU 043 906 022 B, protocol KW1281 | **Never tried on an ECU or car.** Transport, recorder and vehicle file are built from an analysis of the ECU's program (`docs/vw-1600i-digifant.md`) and tested against a simulated ECU only. |
 | Any other car | **Not tested on a car.** A generic OBD2 vehicle file exists. 5-baud init (KWP2000 and ISO 9141-2) is tested only against a simulated ECU. |
 | The reader's vehicle selection, port detection and data folder | Tested only against a simulated ECU. They were added after the last drive. |
 | The web page's cable mode reading manufacturer blocks | Tested only against the simulator. |
@@ -78,6 +79,9 @@ serial port.
 ./kline-obd web --follow recordings/mycar.jsonl
 ```
 
+`vw_1600i_digifant` is for an ECU that speaks neither OBD2 nor KWP2000 but the older VW protocol KW1281; `opname`,
+`rit` and `status` switch to that transport by themselves, and `scan` and `ident` refuse to run for it.
+
 `generic_obd2` reads standard OBD2 values only. To add what your ECU offers beyond that, write a vehicle file; the
 format is in `vehicles/README.md`. Please say in the file how each signal was established, and whether it was tested on
 a car.
@@ -91,7 +95,7 @@ a car.
 | `web/` | the web page and its own K-line stack and simulator; see `web/README.md` (Dutch) |
 | `vehicles/` | vehicle files; see `vehicles/README.md` |
 | `examples/` | a sample recording |
-| `docs/` | the recording format, what was measured and found on the Matiz, and the design notes (Dutch) |
+| `docs/` | the recording format, what was measured and found on the Matiz, the design notes (Dutch), and the description of the VW 1600i ECU (English) |
 | `tests/` | the reader's K-line library against the web page's simulator |
 
 `reader/` and `web/` each have their own K-line implementation. They were written separately and share only the
@@ -112,6 +116,16 @@ identifiers such as `SIGNALEN` and `KERN_BLOKKEN`, and everything in `docs/` and
   cannot be undone: it also erases the freeze frame, the readiness status and the monitor results, and it does not fix
   the cause. See `web/README.md`.
 - On the Matiz the engine ECU is paired with the immobilizer. Do not send it services you do not understand.
+- **Never scan or probe an old ECU you do not know.** A request the ECU does not recognise is harmless under KWP2000,
+  but not everywhere: the Digifant of the VW 1600i does not check the request number, and an unknown one can end up
+  in its basic-setting or EEPROM-write routine. The KW1281 transport here can therefore only send a fixed list of
+  read requests, by name, and the scan commands refuse to run for such a vehicle.
+- **On the VW 1600i Digifant, use `--voertuig vw_1600i_digifant`.** An OBD2 or KWP2000 tester on that ECU (`scan`,
+  the generic OBD2 vehicle file, the web page's cable mode) gets no answer. According to the ECU's program it does no
+  harm either: the wake-up address 0x33 only makes the diagnostic part restart itself as at ignition-on, the engine
+  control is not involved and nothing is stored. That was read from the program, not tried on a real ECU. The hard
+  rule is about requests inside a KW1281 session, and about wake-up addresses 09 to 10 hex, which drop the ECU into
+  the middle of a block exchange; the KW1281 transport therefore wakes on address 01 only and refuses any other.
 - `ident` prints the raw identification answer of the ECU. It can contain the ECU's serial number and a VIN: check it
   before you share it. Recordings made by this tool do not contain it.
 - Do not operate a laptop while driving. Start the recording before you set off.

@@ -40,8 +40,15 @@ van de bron opnieuw, dus een aanpassing daar is na wisselen van bron zichtbaar.
 - **Standaard-PID's** (`"pid0D": "<hex>"` in de opname) worden voor elke auto op dezelfde manier gelezen en gaan altijd voor.
 - **Fabrikantsignalen** (`"01": "<hex van blok 01>"`) komen uit `SIGNALEN = {sleutel: (blok, functie(bytes), eenheid,
   omschrijving, zekerheid, opmerking)}`. Ze verschijnen als kaarten onder "Fabrikantsignalen", met onder elke waarde hoe
-  zeker de betekenis is: ✓ `pid` (geijkt met een standaard-PID), ≈ `handboek`, ? `gedrag` (alleen uit het gedrag afgeleid).
-  Zo wordt een vermoeden nooit als feit getoond.
+  zeker de betekenis is: ✓ `pid` (geijkt met een standaard-PID), ≈ `handboek`, ? `gedrag` (alleen uit het gedrag afgeleid),
+  ◇ `firmware` (uit het programma van de ECU gelezen) en ⚠ `aanname` (aangenomen sensorkromme, nog te meten). Een label
+  dat de pagina niet kent, verschijnt als "onbekend zekerheidslabel", nooit als niets. Zo wordt een vermoeden nooit als
+  feit getoond.
+- **Transport:** `TRANSPORT = "kwp2000"` (standaard) in het signalenbestand zegt hoe de uitlezer met de ECU praat. Meekijken
+  met een opname werkt voor elk transport, bv. `"kw1281"` voor de Digifant-ECU van een VW 1600i. De **kabelmodus** van de
+  pagina spreekt alleen KWP2000/OBD2 en weigert elk ander transport: `server.py` stopt dan met een melding, en in de pagina
+  geeft "Kabel" een melding terwijl het meekijken blijft draaien. Er gaat dan niets naar de ECU en ook het wissen (modus 04)
+  is niet bereikbaar. Test: `selftest_transport.py`.
 - **Wat de regels mogen gebruiken:** `CANONICAL = {sleutel: "rpm"}` koppelt een signaal aan een standaardsleutel (alleen
   wat geijkt is, anders gaan de afwijkingsregels op een gok draaien). `TPS = {"signal", "rest", "full"}` schat een
   gaskleppercentage uit een spanning (nodig voor de stotterdetectie). `HIGHLIGHT = [...]` kiest de grafieken bij een
@@ -74,6 +81,13 @@ begint hij met de opname. Wisselen naar **Kabel** wordt geweigerd als een ander 
 van het uitleesscript; gecontroleerd met `lsof`, de melding noemt het programma): twee programma's op één K-line storen
 elkaar. Wisselen naar **Opname** sluit de kabel weer, zodat het uitleesscript hem kan gebruiken. Verzoeken van andere
 websites (vreemde `Origin`, geen JSON) worden geweigerd. Test: `selftest_hub.py` (alleen simulator).
+
+**De kabelmodus is voor auto's met OBD2/KWP2000 (10400 baud).** Na een mislukte fast init probeert `kwp.py` (`connect()`: eerst
+`fast-break`, dan `slow`) een 5-baud-init op het functionele adres 0x33. Op een ECU die een ander protocol spreekt, zoals de Digifant
+van een VW 1600i (KW1281, 1200 baud, adres 0x01), krijgt dat geen antwoord. Volgens de firmware-analyse van die ECU richt het ook geen schade aan: het diagnosedeel herstart zichzelf zoals bij contact aan, de motorregeling merkt er niets van
+en er wordt niets opgeslagen. **Dat is uit het programma van de ECU gelezen en niet op een echte ECU geprobeerd.** De weigering op
+`TRANSPORT` beschermt alleen als je het VW-voertuigbestand kiest; de pagina weet niet wat er aan de kabel hangt. Gebruik de
+kabelmodus daarom alleen op een auto die OBD2 spreekt, en kijk bij een andere auto mee met een opname (`--follow`, `--replay`).
 
 **Kabelmodus met leesplan (`analyzer.py`, `signalset.py`).** Met `--profile matiz08` (of `--signals <bestand>`) laadt de
 kabelmodus hetzelfde signalenbestand als het meekijken en leest hij per ronde de kernblokken via KWP service 21 (verzoek
@@ -189,6 +203,7 @@ aan `PROFILES` toe. Bij **diesel** staan de benzine-regels (lambda, brandstofcor
 | `server.py`, `static/index.html` | webinterface (alleen op 127.0.0.1) |
 | `feed.py`, `signalset.py`, `selftest_feed.py` | meekijken met een opname van het uitleesscript (`--follow`, `--replay`); `signalset.py` leest het signalenbestand van een auto |
 | `hub.py`, `selftest_hub.py` | schakelen tussen opname en kabel vanuit de pagina |
+| `selftest_transport.py` | `TRANSPORT` in het signalenbestand: de kabelmodus weigert elk transport behalve KWP2000; zekerheidslabels van de pagina |
 | `snapshot.py`, `selftest_clear.py` | foutcodes wissen: momentopname vooraf/achteraf en de bewaakte wisstap |
 | `selftest_cable.py` | kabelmodus met leesplan (service 21) tegen de simulator |
 | `sim.py` | gesimuleerde ECU + nepkabel voor demo en tests |

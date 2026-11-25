@@ -22,6 +22,9 @@ Only one program can use the cable at a time.
 | `luister.py`, `kwp_ontleed.py` | `luister` | Passive listener: decodes KWP2000 frames on the line, pairs requests with answers and flags actuator, security and write services. Sends nothing. Meant for listening to a scan tool through a passive OBD splitter. |
 | `stuurbaar.py`, `opdracht.py`, `stuur.py` | `stuur` | Design-stage command channel for actuator tests: an allow-list, preconditions and guarded execution. No action has known command bytes, so every request is refused. |
 | `nep_ecu.py`, `selftest.py` | `test` | A simulated ECU and the self-test that runs the scripts above against it. |
+| `kw1281.py` | | Transport for ECUs that speak KW1281 instead of KWP2000 (VW 1600i Digifant). It can send seven read titles and nothing else; there is no function that takes a raw title, and it wakes on address 01 only. Never tried on a real ECU. |
+| `kw1281_opname.py`, `kw1281_status.py` | `opname`, `rit`, `status` | Recorder and status snapshot for a KW1281 vehicle, same file formats. `egr_capture.py` and `selftest_snapshot.py` hand over to them when the vehicle file says `TRANSPORT = "kw1281"`. |
+| `nep_kw1281.py`, `selftest_kw1281.py` | `test` | A simulated Digifant ECU at wire level, which fails loudly on any request that must never be sent, and the self-test against it. |
 
 ## Timing notes that cost time to find
 
