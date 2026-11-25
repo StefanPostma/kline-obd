@@ -52,7 +52,7 @@ beschrijven één auto. Eén rit staat als voorbeeld in `examples/`. Paden zijn 
   Vermoedelijk dezelfde oorzaak als hierboven (bytes beschadigd door de herconfiguratie); niet apart nagemeten.
 - **Eerste rit (9 min, stad en randweg):** 29 automatisch vastgelegde "momenten" bleken bijna allemaal gewoon rijden
   (schakelen, gas loslaten/uitrollen, optrekken). Stotteren is automatisch moeilijk te onderscheiden van rijden;
-  daarom de knop/spatiebalk **"Nu stotterde hij"** (bewaart 8 s ervoor en 3 s erna), en de strengere regels in
+  daarom de knop/spatiebalk **"Annotatie: probleem"** (toen nog "Nu stotterde hij"; bewaart 8 s ervoor en 3 s erna), en de strengere regels in
   `_detect`. Stationair was stabiel (σ 45 rpm). Zie ook `logs/*.csv` voor de ruwe metingen.
 - Aangetaste keybytes bij het aanknopen (bv. `7F FC` i.p.v. `EF 8F`) zijn ruis, geen andere ECU.
 

@@ -103,6 +103,27 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/dtc":
             self.monitor.request_dtc_read()
             return self._send(202, {"queued": True})
+        if path in ("/api/dtc/prepare", "/api/dtc/clear", "/api/dtc/cancel"):
+            # foutcodes wissen (README.md, "Foutcodes wissen"): het enige schrijvende verzoek. Strenger dan de rest: Origin is verplicht
+            # (alleen de eigen pagina), JSON als Content-Type, en voor wissen zelf een eenmalig id van een momentopname.
+            if self.headers.get("Origin") is None:
+                return self._send(403, {"error": "alleen vanuit de pagina zelf"})
+            if not self.headers.get("Content-Type", "").startswith("application/json"):
+                return self._send(415, {"error": "application/json verwacht"})
+            try:
+                n = int(self.headers.get("Content-Length", "0"))
+                data = json.loads(self.rfile.read(min(n, 1024)) or b"{}")
+                if not isinstance(data, dict):
+                    raise ValueError
+            except ValueError:
+                return self._send(400, {"error": "ongeldig verzoek"})
+            if path.endswith("/prepare"):
+                code, body = self.monitor.request_clear_prepare()
+            elif path.endswith("/clear"):
+                code, body = self.monitor.request_clear(data.get("snapshot"), data.get("confirm"))
+            else:
+                code, body = self.monitor.cancel_clear()
+            return self._send(code, body)
         if path == "/api/mark":
             self.monitor.mark()
             return self._send(202, {"marked": True})

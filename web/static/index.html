@@ -86,6 +86,13 @@ th { color: var(--muted); font-weight: 500; white-space: nowrap; }
 .mark.done { background: var(--okbg); border-color: var(--ok); color: var(--ok); }
 kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; margin-left: 6px; opacity: .8; }
 .hint, footer { color: var(--muted); font-size: 12px; margin-top: 6px; }
+#clearbox .card2 { border: 1px solid var(--bad); border-left: 4px solid var(--bad); background: var(--badbg); border-radius: 6px; padding: 12px 14px; margin-top: 10px; }
+#clearbox .card2.ok { border-color: var(--ok); background: var(--card); }
+#clearbox h3 { margin: 0 0 8px; font-size: 15px; }
+#clearbox table { margin: 6px 0; } #clearbox td { padding: 2px 12px 2px 0; vertical-align: top; }
+#clearbox .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+#clearbox button.danger { border-color: var(--bad); color: var(--bad); font-weight: 600; }
+#clearbox button.danger:disabled { opacity: .5; }
 </style>
 </head>
 <body>
@@ -98,7 +105,7 @@ kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-rad
       <button data-mode="feed" title="Meekijken met de opname van het uitleesscript; de kabel blijft van dat script">Opname</button>
       <button data-mode="cable" title="Zelf de kabel gebruiken; kan alleen als geen ander programma hem heeft">Kabel</button>
     </div>
-    <button id="markbtn" class="mark" title="Bewaart de 8 seconden ervoor en 3 seconden erna">⚑ Nu stotterde hij <kbd>spatiebalk</kbd></button>
+    <button id="markbtn" class="mark" title="Annoteert dit moment als probleem: bewaart de 8 seconden ervoor en 3 seconden erna">⚑ Annotatie: probleem <kbd>spatiebalk</kbd></button>
   </header>
   <div id="demo" class="demo" hidden>DEMO — dit zijn gesimuleerde waarden, geen echte auto.</div>
   <div id="statusbox" class="statusbox" hidden></div>
@@ -137,7 +144,7 @@ kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-rad
   <section>
     <h2>Vastgelegde momenten</h2>
     <ul id="events"></ul>
-    <div class="hint" id="eventhint">Jouw markeringen zijn leidend. Automatische meldingen zijn indicatief: een toerentalsprong kan ook gewoon optrekken of schakelen zijn, zeker bij één meting per seconde.</div>
+    <div class="hint" id="eventhint">Jouw annotaties zijn leidend. Automatische meldingen zijn indicatief: een toerentalsprong kan ook gewoon optrekken of schakelen zijn, zeker bij één meting per seconde.</div>
     <div id="eventdetail"></div>
   </section>
 
@@ -146,6 +153,13 @@ kbd { font: inherit; font-size: 11px; border: 1px solid currentColor; border-rad
     <button id="dtcbtn">Foutcodes lezen</button>
     <span class="hint" id="dtcmsg"></span>
     <div id="dtc"></div>
+
+    <h2 style="margin-top:22px">Foutcodes wissen</h2>
+    <div class="hint" style="margin:0 0 8px">Dit verandert de ECU en is niet terug te draaien: codes, freeze frame en readiness gaan weg. Alleen in
+      kabelmodus, motor uit (contact aan), accu in orde. Eerst wordt een momentopname bewaard; daarna moet je bevestigen.</div>
+    <button id="clearbtn" disabled>Foutcodes wissen…</button>
+    <span class="hint" id="clearmsg"></span>
+    <div id="clearbox"></div>
   </section>
 
   <footer id="foot"></footer>
@@ -357,7 +371,7 @@ function renderEvents(s) {
     const li = el('li', 'event ' + (mark ? 'mark' : 'auto'));
     const b = el('button', null, e.ready ? 'Bekijk' : 'Wordt vastgelegd…'); b.disabled = !e.ready;
     b.onclick = () => showEvent(e.id);
-    li.append(el('time', null, clock(e.t)), el('span', 'tag', mark ? 'jouw markering' : 'automatisch · indicatief'),
+    li.append(el('time', null, clock(e.t)), el('span', 'tag', mark ? 'jouw annotatie' : 'automatisch · indicatief'),
               el('span', 'txt', e.text), b);
     ul.append(li);
   });
@@ -376,7 +390,7 @@ async function showEvent(id) {
     requestAnimationFrame(() => draw(cv, ev.series[k], { xmin: -8, xmax: 3, axes: true, dec: m ? m.dec : 1, marks: [0], step: 2, zero: 'moment', color: '--accent' }));
   });
   box.append(el('div', 'hint', (ev.kind === 'handmatig'
-    ? 'Streepje = het moment waarop jij drukte; het stotteren zelf zat meestal 1–5 s eerder, kijk dus links van het streepje. '
+    ? 'Streepje = het moment waarop jij annoteerde; het probleem zelf zat meestal 1–5 s eerder, kijk dus links van het streepje. '
     : 'Streepje = het moment waarop de afwijking werd gezien. ') +
     'Punten komen ongeveer elke 0,3–1,5 s per waarde binnen; een korte piek kan tussen twee metingen vallen.'));
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -407,11 +421,118 @@ function renderDtc(s) {
   }
 }
 
+async function postJson(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  let data = null; try { data = await r.json(); } catch (e) { /* geen JSON */ }
+  return { ok: r.ok, status: r.status, data };
+}
+
+const LOST = [
+  ['Opgeslagen en pending foutcodes', 'weg; de ECU zet ze terug als de storing opnieuw optreedt'],
+  ['Freeze frame', 'weg: de meetwaarden bij het ontstaan van de storing, vaak het enige bewijs'],
+  ['Storingslamp (MIL)', 'gaat uit, ook als de oorzaak er nog is'],
+  ['Readiness-monitoren (EGR, katalysator, lambda…)', "terug op 'niet gereed' tot de ECU ze opnieuw heeft doorlopen"],
+  ['Geleerde waarden (LTFT, stationair)', 'onbekend voor deze ECU; hieronder zie je na het wissen of ze veranderd zijn'],
+];
+let clearSig = '';
+function listOrNone(a) { return a && a.length ? a.join(', ') : 'geen'; }
+
+function renderClear(s) {
+  const c = s.clear || { phase: 'idle', gates: [] };
+  const box = $('#clearbox'), btn = $('#clearbtn'), msg = $('#clearmsg');
+  const busy = c.phase === 'preparing' || c.phase === 'clearing';
+  const gates = c.gates || [];
+  btn.disabled = busy || gates.length > 0 || c.phase === 'ready';
+  btn.textContent = c.phase === 'ready' ? 'Wacht op bevestiging…' : 'Foutcodes wissen…';
+  msg.textContent = busy ? ' ' + (c.message || '') + (c.progress ? ' (' + c.progress + ')' : '')
+    : gates.length ? ' Kan nu niet: ' + gates.join(' ') : '';
+  const sig = c.phase + '|' + (c.prepared ? c.prepared.id : '') + '|' + (c.result ? c.result.outcome : '') + '|' + (c.message || '');
+  if (c.phase === 'ready' && c.prepared) {
+    if (sig !== clearSig) { clearSig = sig; buildConfirm(box, c); }
+    const left = $('#clearleft'); if (left) left.textContent = `Deze momentopname is nog ${c.prepared.expires_in} s geldig.`;
+    const go = $('#cleargo'), ok = $('#clearok');
+    if (go && ok) go.disabled = !ok.checked || gates.length > 0 || c.prepared.expires_in <= 0;
+    const gm = $('#clearblock'); if (gm) gm.textContent = gates.length ? 'Nu niet mogelijk: ' + gates.join(' ') : '';
+    return;
+  }
+  if (sig === clearSig) return;
+  clearSig = sig;
+  box.replaceChildren();
+  if (busy) { box.append(el('div', 'hint', 'Niet afsluiten en niets aanraken tot dit klaar is.')); return; }
+  if (c.phase === 'error' || (c.phase === 'idle' && c.message)) {
+    const d = el('div', 'card2'); d.append(el('div', null, c.message || 'Mislukt.'));
+    const row = el('div', 'row'); const b = el('button', null, 'Sluiten'); b.onclick = async () => { await postJson('/api/dtc/cancel'); };
+    row.append(b); d.append(row); box.append(d); return;
+  }
+  if (c.phase === 'done' && c.result) buildResult(box, c.result);
+}
+
+function buildConfirm(box, c) {
+  box.replaceChildren();
+  const sm = c.prepared.summary, d = el('div', 'card2');
+  d.append(el('h3', null, 'Foutcodes wissen: dit kun je niet terugdraaien'));
+  d.append(el('div', null, 'Wat er nu op de ECU staat:'));
+  const t = el('table');
+  [['Opgeslagen codes', listOrNone(sm.stored)], ['Pending codes', listOrNone(sm.pending)],
+   ['Freeze frame', sm.freeze_dtc || 'geen'], ['Storingslamp', sm.mil ? 'AAN' : 'uit'],
+   ['Monitoren', Object.entries(sm.monitors || {}).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'],
+   ['LTFT (geleerd)', sm.ltft == null ? '—' : sm.ltft + ' %']].forEach(([a, b]) => { const r = el('tr'); r.append(el('td', 'hint', a), el('td', null, b)); t.append(r); });
+  d.append(t);
+  if (!sm.stored.length && !sm.pending.length && !sm.mil)
+    d.append(el('div', 'hint', 'Er staan nu geen codes en de lamp is uit: wissen levert niets op en kost alleen bewijs (freeze frame, readiness).'));
+  d.append(el('div', null, 'Wat wissen doet:'));
+  const t2 = el('table'); LOST.forEach(([a, b]) => { const r = el('tr'); r.append(el('td', null, a), el('td', 'hint', b)); t2.append(r); }); d.append(t2);
+  d.append(el('div', 'hint', `Momentopname bewaard als ${c.prepared.file} (en ${sm.blocks} blokken, ${sm.mode06} modus-06-tests). Na het wissen volgt een tweede, om te vergelijken.`));
+  if (sm.fouten && sm.fouten.length) d.append(el('div', 'hint', 'Niet gelezen: ' + sm.fouten.join('; ')));
+  d.append(el('div', 'hint', null)); d.lastChild.id = 'clearleft';
+  const lab = el('label'); const ok = el('input'); ok.type = 'checkbox'; ok.id = 'clearok';
+  lab.append(ok, ' Ik heb dit gelezen en wil de foutcodes nu wissen. De motor is uit en het contact staat aan.');
+  d.append(el('div', 'row')); d.lastChild.append(lab);
+  const row = el('div', 'row');
+  const go = el('button', 'danger', 'Wis nu'); go.id = 'cleargo'; go.disabled = true;
+  ok.onchange = () => { go.disabled = !ok.checked; };
+  go.onclick = async () => {
+    go.disabled = true;
+    const r = await postJson('/api/dtc/clear', { snapshot: c.prepared.id, confirm: true });
+    if (!r.ok) $('#clearblock').textContent = (r.data && (r.data.reasons ? r.data.reasons.join(' ') : r.data.error)) || 'Wissen mislukt.';
+  };
+  const no = el('button', null, 'Annuleren'); no.onclick = async () => { await postJson('/api/dtc/cancel'); };
+  row.append(go, no); d.append(row);
+  d.append(el('div', 'hint')); d.lastChild.id = 'clearblock';
+  box.append(d);
+}
+
+function buildResult(box, r) {
+  const good = r.outcome === 'gewist' || r.outcome === 'waarschijnlijk gewist';
+  const d = el('div', 'card2' + (good ? ' ok' : ''));
+  d.append(el('h3', null, 'Uitkomst: ' + r.outcome));
+  if (r.message) d.append(el('div', null, r.message));
+  if (r.verschil) {
+    const t = el('table'); const v = r.verschil;
+    const row = (a, x) => { const tr = el('tr'); tr.append(el('td', 'hint', a), el('td', null, x)); t.append(tr); };
+    row('Opgeslagen codes', `${listOrNone(r.voor.stored)}  →  ${listOrNone(r.na.stored)}`);
+    row('Pending codes', `${listOrNone(r.voor.pending)}  →  ${listOrNone(r.na.pending)}`);
+    row('Storingslamp', `${r.voor.mil ? 'AAN' : 'uit'}  →  ${r.na.mil ? 'AAN' : 'uit'}`);
+    row('LTFT (geleerd)', v.ltft ? `${v.ltft.voor} %  →  ${v.ltft.na} %  (veranderd)` : (r.na.ltft == null ? '—' : r.na.ltft + ' %  (niet veranderd)'));
+    row('Readiness-monitoren', v.monitors ? 'veranderd (zie het bestand)' : 'niet veranderd');
+    if (v.blokken_veranderd) row('Fabrikantblokken', 'bytes veranderd in blok ' + Object.keys(v.blokken_veranderd).join(', '));
+    d.append(t);
+  }
+  d.append(el('div', 'hint', `Bestanden in logs/: ${r.voor_bestand}${r.na_bestand ? ' en ' + r.na_bestand : ''}. Vergelijk volledig met selftest_diff.py.`));
+  const row = el('div', 'row'); const b = el('button', null, 'Sluiten'); b.onclick = async () => { await postJson('/api/dtc/cancel'); };
+  row.append(b); d.append(row); box.append(d);
+}
+
+$('#clearbtn').onclick = async () => {
+  const r = await postJson('/api/dtc/prepare');
+  if (!r.ok) $('#clearmsg').textContent = ' ' + ((r.data && (r.data.reasons ? r.data.reasons.join(' ') : r.data.error)) || 'Mislukt.');
+};
+
 async function tickState() {
   try {
     const r = await fetch('/api/state'); if (!r.ok) throw new Error(r.status);
     state = await r.json();
-    renderStatus(state); renderIdentity(state); renderAlerts(state); renderCards(state); renderEvents(state); renderDtc(state); drawAll();
+    renderStatus(state); renderIdentity(state); renderAlerts(state); renderCards(state); renderEvents(state); renderDtc(state); renderClear(state); drawAll();
   } catch (e) {
     const p = $('#pill'); p.textContent = 'Server niet bereikbaar'; p.className = 'pill bad';
   }
@@ -440,9 +561,9 @@ $('#identbtn').onclick = async () => {
 };
 async function mark() {
   const b = $('#markbtn');
-  try { await fetch('/api/mark', { method: 'POST' }); b.classList.add('done'); b.firstChild.textContent = '✓ Gemarkeerd '; }
+  try { await fetch('/api/mark', { method: 'POST' }); b.classList.add('done'); b.firstChild.textContent = '✓ Geannoteerd '; }
   catch (e) { b.firstChild.textContent = 'Mislukt, probeer opnieuw '; }
-  setTimeout(() => { b.classList.remove('done'); b.firstChild.textContent = '⚑ Nu stotterde hij '; }, 1800);
+  setTimeout(() => { b.classList.remove('done'); b.firstChild.textContent = '⚑ Annotatie: probleem '; }, 1800);
 }
 $('#markbtn').onclick = mark;
 document.addEventListener('keydown', e => {

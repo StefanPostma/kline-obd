@@ -73,6 +73,8 @@ class Hub:
                 return 409, {"error": "Er wordt al geschakeld."}
             if mode == self.mode:
                 return 200, {"mode": mode}
+            if getattr(self.mon, "clear", {}).get("phase") in ("preparing", "clearing"):
+                return 409, {"error": "Er loopt een actie op de ECU (foutcodes wissen); wacht tot die klaar is."}
             if mode == "cable":
                 who = self.holder()
                 if who:
@@ -129,6 +131,15 @@ class Hub:
 
     def request_ident_ext(self):
         self.mon.request_ident_ext()
+
+    def request_clear_prepare(self):
+        return self.mon.request_clear_prepare()
+
+    def request_clear(self, token, confirm):
+        return self.mon.request_clear(token, confirm)
+
+    def cancel_clear(self):
+        return self.mon.cancel_clear()
 
     def mark(self):
         self.mon.mark()

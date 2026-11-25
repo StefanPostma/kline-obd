@@ -9,7 +9,8 @@ cable. Three parts:
 - **`web/`** a local web page that shows the values live, follows a recording, and logs the moments you mark;
 - **`vehicles/`** one file per car that says which data to read and what the bytes mean.
 
-Today everything is **read-only**: nothing is written to the car and no actuator is driven.
+Everything is **read-only**, with one exception: the web page can clear trouble codes (OBD mode 04) after a status
+snapshot and a two-step confirmation. Nothing else is written to the car and no actuator is driven.
 
 ## What has been verified, and what has not
 
@@ -21,7 +22,7 @@ Today everything is **read-only**: nothing is written to the car and no actuator
 | The web page's cable mode reading manufacturer blocks | Tested only against the simulator. |
 | macOS, Python 3.9 and 3.14 | Used for all of the above; the self-tests pass on both Python versions. |
 | Linux | Untested. The reader looks for `/dev/ttyUSB*`; the web page needs `--serial /dev/ttyUSB0`. |
-| Clearing trouble codes and resetting the engine light | **Planned, not built yet.** |
+| Clearing trouble codes and resetting the engine light | Built in the web page (cable mode). **Tested only against the simulator; never used on a car.** |
 | Actuator tests and writing | **Not built.** A guarded command channel exists as a design (`docs/aansturen-ontwerp.md`), and it refuses every action because the command bytes for this ECU are unknown. |
 
 The meaning of the manufacturer data blocks is not documented by the manufacturer. It was derived from how the values
@@ -105,6 +106,11 @@ identifiers such as `SIGNALEN` and `KERN_BLOKKEN`, and everything in `docs/` and
 
 - The tools send only read requests: OBD modes 01, 02, 03, 06, 07, 09 and KWP2000 services 1A, 18 and 21, plus
   StartCommunication and StopCommunication.
+- The one request that changes something is OBD mode 04, clear trouble codes, in the web page. It is only offered in
+  cable mode with the engine off and the car standing still, with a battery voltage above 11.8 V, after a snapshot of
+  the codes, monitors and data blocks, and after a two-step confirmation. It is sent once and never repeated. Clearing
+  cannot be undone: it also erases the freeze frame, the readiness status and the monitor results, and it does not fix
+  the cause. See `web/README.md`.
 - On the Matiz the engine ECU is paired with the immobilizer. Do not send it services you do not understand.
 - `ident` prints the raw identification answer of the ECU. It can contain the ECU's serial number and a VIN: check it
   before you share it. Recordings made by this tool do not contain it.

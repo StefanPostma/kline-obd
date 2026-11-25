@@ -200,6 +200,49 @@ def test_plausibility_and_events():
     m = analyzer.Monitor(lambda: None, tmp, log=lambda *a: None)
     m.mark()
     check("handmatig markeren legt een moment vast", [e["kind"] for e in m.events] == ["handmatig"])
+    check("de annotatie heet 'Annotatie: probleem'", m.events[0]["text"] == "Annotatie: probleem", m.events[0]["text"])
+
+    # Stationair-regels (rpm-kaart rood, 'Onrustig stationair'): alleen een aaneengesloten stilstandsperiode telt
+    def idle_case(rpm, speed, map_=None, ect=85.0):
+        mm = analyzer.Monitor(lambda: None, tmp, log=lambda *a: None)
+        t = time.monotonic()
+        for key, pts in (("rpm", rpm), ("speed", speed), ("map", map_ or [])):
+            if pts:
+                mm.hist[key] = deque((t + dt, v) for dt, v in pts)
+                mm.latest[key] = (t + pts[-1][0], pts[-1][1])
+        mm.latest["ect"] = (t, ect)
+        return [a["title"] for a in mm.evaluate(t)]
+
+    grid = [-15.0 + 1.2 * i for i in range(13)]                    # 13 metingen in 15 s, laatste op -0,6 s
+    still = [(x, 0) for x in grid]
+    steady = [(x, 930 + (7 if i % 2 else -7)) for i, x in enumerate(grid)]
+    check("rustig stationair: geen melding", idle_case(steady, still) == [], idle_case(steady, still))
+    hunting = [(x, 700 if i % 2 else 1120) for i, x in enumerate(grid)]
+    check("echt onrustig stationair (700 ↔ 1120 rpm, stilstaand) wordt gemeld",
+          "Onrustig stationair toerental" in idle_case(hunting, still), idle_case(hunting, still))
+    stop = [(x, 40 if x < -7 else 0) for x in grid]
+    stop_rpm = [(x, 2500 - 60 * i if x < -7 else 910) for i, x in enumerate(grid)]
+    check("net gestopt (venster bevat rijden): geen melding", idle_case(stop_rpm, stop) == [], idle_case(stop_rpm, stop))
+    pull = [(x, 925 if x < -2.5 else 925 + 250 * (x + 2.5 + 1.2) / 1.2) for x in grid]
+    check("het gas gaat open vlak vóór wegrijden: geen melding", idle_case(pull, still) == [], idle_case(pull, still))
+    cold = [(x, 1500 - 40 * i) for i, x in enumerate(grid)]
+    check("koude motor met afnemend snel stationair (1500 → 1020): geen melding", idle_case(cold, still) == [], idle_case(cold, still))
+    flare = [(x, 0 if i < 3 else 1800 - 55 * i) for i, x in enumerate(grid)]
+    check("vlak na het starten van de motor: geen melding", idle_case(flare, still) == [], idle_case(flare, still))
+    rev = [(x, 2900 if i in (5, 6) else 920) for i, x in enumerate(grid)]
+    check("gas geven op stilstand (toerental 2900): geen melding", idle_case(rev, still) == [], idle_case(rev, still))
+    map_ok = [(x, 40.0) for x in grid]
+    map_pull = [(x, 40.0 if x < -2.5 else 70.0) for x in grid]
+    map_high = [(x, 62.0) for x in grid]
+    check("inlaatdruk 40 kPa op stationair: geen melding", not any("inlaatdruk" in t for t in idle_case(steady, still, map_ok)))
+    check("inlaatdruk stijgt pas in de laatste seconden (wegrijden): geen melding", not any("inlaatdruk" in t for t in idle_case(steady, still, map_pull)))
+    check("inlaatdruk 62 kPa de hele stilstand: wel gemeld", any("inlaatdruk" in t for t in idle_case(steady, still, map_high)),
+          idle_case(steady, still, map_high))
+    # gas geven op stilstand is ook geen stotter (de gasklep wordt maar eens per seconde gemeten en mist zo'n stoot)
+    rev_events = scenario(0, [(-2.0, 10.2), (-0.5, 10.3)], [(-1.4, 3090), (-0.7, 2780), (0.0, 1956)])
+    check("gas geven op stilstand (3090 → 1956 rpm) is geen stotter-moment", rev_events == [], rev_events)
+    rev_up = scenario(0, [(-2.0, 10.2), (-0.5, 10.3)], [(-1.4, 1225), (-0.7, 1728), (0.0, 2118)])
+    check("toerentalstoot op stilstand (1225 → 2118 rpm) is geen stotter-moment", rev_up == [], rev_up)
 
 
 def test_analysis(seconds=38):

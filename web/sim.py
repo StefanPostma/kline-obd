@@ -26,6 +26,14 @@ class Engine:
         self.rng = random.Random(7)
         self.dtcs = ["P0171"] if scenario == "stutter" else []
         self.ltft = 12.0 if scenario == "stutter" else 1.5
+        self.running = True                          # False = contact aan, motor uit
+        self.batt = None                             # vaste accuspanning (anders de dynamo-waarde van een draaiende motor)
+        self.mon_d = 0x00                            # PID 01 byte D: bit = monitor NIET voltooid
+
+    def clear_dtcs(self):
+        """Mode 04: codes, freeze frame en readiness weg; de geleerde waarden (LTFT) blijven staan."""
+        self.dtcs = []
+        self.mon_d = 0xE5
 
     def values(self):
         t = (time.monotonic() - self.t0) * self.speedup
@@ -36,17 +44,19 @@ class Engine:
         s = math.sin(math.pi * phase / 1.2) if phase < 1.2 else 0.0      # stotterintensiteit 0..1
         closed = ect >= 70
         o2 = 0.45 + 0.42 * math.tanh(3 * math.sin(2 * math.pi * t / 1.3)) if closed else 0.45
+        off = not self.running
         return {
-            "rpm": 820 + 260 * math.exp(-t / 60) + 10 * math.sin(t * 1.3) + g(0, 6) - 380 * s,
+            "rpm": 0.0 if off else 820 + 260 * math.exp(-t / 60) + 10 * math.sin(t * 1.3) + g(0, 6) - 380 * s,
             "tps": 11.0 + g(0, 0.3),
             "map": 36 + g(0, 1.2) + 14 * s,
             "stft": 5 * math.sin(2 * math.pi * t / 2.6) + 28 * s + g(0, 0.5),
             "ltft": self.ltft,
             "o2_b1s1": max(0.05, min(0.95, o2 + g(0, 0.02) - 0.35 * s)),
-            "ect": ect, "iat": 35 + 8 * warm, "batt": 14.1 + g(0, 0.04),
+            "ect": ect, "iat": 35 + 8 * warm,
+            "batt": self.batt if self.batt is not None else (12.4 if off else 14.1) + g(0, 0.04),
             "load": 22 + g(0, 0.5), "timing": 12 + g(0, 0.3), "speed": 0,
             "fuelsys": 2 if closed else 1, "runtime": int(t) + 30, "baro": 101,
-            "dtc_count": len(self.dtcs), "mil": 1 if self.dtcs else 0,
+            "dtc_count": len(self.dtcs), "mil": 1 if self.dtcs else 0, "mon_d": self.mon_d,
         }
 
 
@@ -56,7 +66,7 @@ def _clamp(x, lo=0, hi=255):
 
 def encode(pid, v):
     if pid == 0x01:
-        return bytes([(0x80 if v["mil"] else 0) | v["dtc_count"], 0x07, 0xE5, 0x00])
+        return bytes([(0x80 if v["mil"] else 0) | v["dtc_count"], 0x07, 0xE5, v.get("mon_d", 0)])
     if pid == 0x03:
         return bytes([v["fuelsys"], 0])
     if pid == 0x04:
@@ -111,6 +121,10 @@ class SimECU:
     def __init__(self, proto="kwp-fast", engine=None, blocks=None):
         """blocks: {id: bytes of functie(values) -> bytes} voor KWP service 21 (fabrikantblokken); zonder: 7F 21 11."""
         self.blocks = blocks
+        self.nrc04 = None                            # test: antwoord op mode 04 met 7F 04 <nrc> in plaats van wissen
+        self.drop04 = False                          # test: mode 04 krijgt geen antwoord (en wordt toch uitgevoerd)
+        self.lose04 = False                          # test: mode 04 komt nooit aan (geen antwoord, niets uitgevoerd)
+        self.fail = {}                               # test: {service: nrc} laat een service altijd met 7F weigeren
         self.seen = {}                               # service -> aantal verzoeken (voor tests)
         self.seen_blocks = {}                        # blok-id -> aantal service 21-verzoeken (voor tests)
         self.proto = proto
@@ -186,6 +200,8 @@ class SimECU:
         svc = p[0]
         self.seen[svc] = self.seen.get(svc, 0) + 1
         v = self.engine.values()
+        if svc in self.fail:
+            return self._neg(svc, self.fail[svc])
         if svc == 0x01 and len(p) >= 2:
             pid = p[1]
             if pid % 0x20 == 0 and pid <= 0x40:
@@ -200,9 +216,27 @@ class SimECU:
             if pid in SUPPORTED and pid not in (0x01, 0x03):
                 return bytes([0x42, pid, 0x00]) + encode(pid, v)
             return self._neg(0x02, 0x12)
+        if svc == 0x18 and len(p) >= 4 and not self.iso:  # KWP readDTCByStatus: 58 + aantal
+            return bytes([0x58, len(self.engine.dtcs)])
         if svc == 0x03:
             pairs = b"".join(dtc_bytes(c) for c in self.engine.dtcs[:3]).ljust(6, b"\0")
             return bytes([0x43]) + pairs
+        if svc == 0x04:                                  # mode 04: foutcodes wissen
+            if self.nrc04 is not None:
+                return self._neg(0x04, self.nrc04)
+            if self.engine.running:                      # veel ECU's: alleen met contact aan en motor uit
+                return self._neg(0x04, 0x22)
+            if self.lose04:
+                return None
+            self.engine.clear_dtcs()
+            return None if self.drop04 else bytes([0x44])
+        if svc == 0x06 and len(p) >= 2 and not self.iso:  # mode 06: testresultaten, één TID met twee onderdelen
+            if p[1] == 0x00:
+                return bytes([0x46, 0x00, 0x00]) + (1 << 31).to_bytes(4, "big")   # alleen TID 01
+            if p[1] == 0x01:
+                return [bytes([0x46, 0x01]) + bytes([0x01, 0x00, 0x10, 0x00, 0x40]),
+                        bytes([0x46, 0x01]) + bytes([0x02, 0x00, 0x20, 0x00, 0x40])]
+            return self._neg(0x06, 0x12)
         if svc == 0x07:
             return bytes([0x47]) + bytes(6)
         if svc == 0x09 and len(p) >= 2:                 # voertuiginfo: elk antwoord = berichten van 4 databytes

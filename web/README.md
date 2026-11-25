@@ -2,7 +2,8 @@
 
 Live waarden uitlezen van een auto (gebouwd voor een Chevrolet/Daewoo Matiz 0.8, 2009) via een FTDI
 K-line (KKL) kabel, met een webinterface die het voertuig/de ECU herkent en afwijkingen en
-"stotter-momenten" vastlegt. Alleen lezen: er wordt niets op de auto gewijzigd of gewist.
+"stotter-momenten" vastlegt. Alleen lezen, met één uitzondering: foutcodes wissen (mode 04), alleen in kabelmodus,
+na een momentopname en na jouw bevestiging in de pagina (zie "Foutcodes wissen").
 
 De meetresultaten en het onderzoek aan de Matiz staan in `../docs/matiz-m200-08.md`; het opnameformaat in `../docs/opnameformaat.md`.
 
@@ -56,7 +57,7 @@ van de bron opnieuw, dus een aanpassing daar is na wisselen van bron zichtbaar.
   `t` worden overgeslagen. Optioneel zijbestand `<opnamenaam>.meta.json` met `{"ecu": {"onderdeelnummer", "kalibratie",
   "software"}}` voor het paneel "Voertuig / ECU". Kanalen die roulerend worden gelezen (bv. eens per 22 s) gelden pas als
   verouderd na 2,5× hun gemeten interval (minimaal 10 s). `VENSTER_OPMERKINGEN = {naam: tekst}` in het signalenbestand
-  wordt de tooltip bij een testvenster-chip. De knop "Nu stotterde hij" bewaart bij `--follow` ook een regel in
+  wordt de tooltip bij een testvenster-chip. De knop "Annotatie: probleem" (voorheen "Nu stotterde hij"; het probleem kan van elke aard zijn) bewaart bij `--follow` ook een regel in
   `logs/<opnamenaam>.markeringen.log` (kloktijd `e` en `t` van de laatste opnameregel); de opname zelf wordt nooit aangepast.
   Het volledige formaat staat in `../docs/opnameformaat.md`.
 
@@ -82,6 +83,27 @@ dezelfde grootheden. Alleen leesverzoeken. Service 21 antwoordt op het functione
 (bevestigd door de uitleessessie met de opnames van 23-11). Per ronde zijn dat ~8 verzoeken, op de echte lijn ~0,8
 ronde/s; bij zo'n grof ritme beoordeelt de stotterdetectie toerentalsprongen alleen stilstaand, net als bij het
 meekijken. Test: `selftest_cable.py` (alleen simulator met verzonnen blokken); **nog niet op de auto geprobeerd**.
+
+**Foutcodes wissen (`analyzer.py`, `snapshot.py`, `obd.clear_dtcs`).** Het enige verzoek van de
+pagina dat de ECU verandert: SAE J1979 mode 04 (`04` → `44`). **Dit is niet terug te draaien:** opgeslagen en pending codes, het
+freeze frame (vaak het enige bewijs) en de storingslamp gaan weg en alle readiness-monitoren staan daarna op "niet gereed"; of de
+geleerde waarden (LTFT, stationair) meegaan is voor deze ECU onbekend, de pagina laat het verschil zien. Zonder codes en met de lamp uit
+levert wissen niets op. Werkwijze (knop "Foutcodes wissen…" onder "Foutcodes"):
+1. **Voorwaarden** (anders weigert de pagina en noemt de reden): kabelmodus en verbonden; motor uit (toerental ≥ 3 s op nul); auto
+   staat stil; accuspanning > 11,8 V (sleutel `batt` of `accuspanning`; de Matiz geeft die via blok 0C, dus start met `--profile matiz08`).
+2. **Momentopname vooraf** in het formaat van `zelftest_<label>.json` van de uitleessessie: MIL/readiness (PID 01), codes (03/07/18),
+   freeze frame, modus 06, LTFT en alle blokken uit `ALLE_BLOKKEN` van het signalenbestand, elk 3×. Mislukt het essentiële deel (PID 01
+   01 of mode 03), dan is er geen momentopname en geen wissen. Bestand: `logs/zelftest_wissen_<tijd>_voor.json`.
+3. **Bevestiging** in de pagina: wat er nu op de ECU staat, wat wissen doet, een vinkje en "Wis nu". De momentopname is 5 minuten
+   geldig, het id is eenmalig; de voorwaarden worden bij het verzenden nog eens gecontroleerd.
+4. **Eén verzoek, geen herhaling en geen terugval naar service 14.** `7F 04 78` (antwoord volgt) wordt afgewacht; een weigering
+   (`7F 04 22` motor aan, `11`/`12` niet ondersteund) wordt uitgelegd; bij een zoek antwoord wordt teruggelezen of het gelukt is.
+5. **Controle achteraf** in dezelfde toestand: tweede momentopname (`..._na.json`), voor/na in de pagina, een regel in `logs/acties.log`.
+   Het volledige verschil: `selftest_diff.py` van de uitleessessie, met `KLINE_DATA=<map met de bestanden>`.
+Het eindpunt is `POST /api/dtc/prepare|clear|cancel`: Origin verplicht (alleen de eigen pagina), JSON verplicht, voor wissen het
+id van een momentopname en `"confirm": true`. Schakelen naar een andere bron tijdens wissen wordt geweigerd. Test:
+`selftest_clear.py` (alleen simulator, inclusief een controle dat mode 04 nergens anders verstuurd kan worden); **nog nooit op de auto
+geprobeerd.** Het eerste echte gebruik gebeurt alleen met de eigenaar erbij, contact aan, motor uit.
 
 Open daarna <http://127.0.0.1:8777>. Er kan maar één programma tegelijk
 de kabel gebruiken: stop `kline_test.py` voordat je `server.py` start.
@@ -122,8 +144,18 @@ aan `PROFILES` toe. Bij **diesel** staan de benzine-regels (lambda, brandstofcor
 - **Live waarden** met min/gem/max en sparkline; klik een kaart voor een grafiek van 2 minuten.
 - **Afwijkingen**: regels met indicatieve drempels (bovenaan `analyzer.py`), bv. onrustig stationair,
   LTFT te hoog, lambdasonde wisselt niet, hoge MAP op stationair, accuspanning, thermostaat.
+  **De stationair-regels** (onrustig toerental, toerental buiten het bereik van het profiel, hoge inlaatdruk, springende gasklep) kijken
+  alleen naar een aaneengesloten stilstand: pas 3 s na de laatste beweging (snelheid > 0), zonder de laatste 2,4 s (gas geven en
+  wegrijden beginnen vóór de snelheid > 0 meldt), met minstens 8 metingen, niet in de 10 s na het starten van de motor, en niet als
+  het toerental in dat venster boven 1500 kwam (gas geven of de snelle stationair van een koude start). Een toerental dat rustig
+  daalt (koude motor) telt niet als onrust: de spreiding wordt gemeten rond het verloop. Reden (24-11): een venster van vaste lengte
+  telde rijden vlak vóór het stoppen of na het wegrijden mee; 18 van de 20 rode "Onrustig stationair"-periodes van één rit waren dat, en
+  de toerentalkaart werd daardoor rood. Na de aanpassing geven de vijf opgenomen ritten (rit1, rit2, koud, wissel, origineel) geen valse
+  stationair-meldingen meer; een echt schommelend stationair (700 ↔ 1120 rpm, stilstaand) wordt nog steeds gemeld (`selftest.py`).
+  Stilstaand gas geven (toerental boven 1500) is ook geen stotter-moment meer; de gasklep wordt maar eens per seconde gemeten en mist
+  zo'n stoot.
   Het zijn aanwijzingen, geen diagnose.
-- **Vastgelegde momenten**: jouw markeringen ("Nu stotterde hij") zijn leidend. Automatisch worden de 8 s ervoor en 3 s
+- **Vastgelegde momenten**: jouw annotaties (knop "Annotatie: probleem") zijn leidend. Automatisch worden de 8 s ervoor en 3 s
   erna van alle waarden bewaard bij een toerental-dip/-piek zonder gasbeweging, een STFT-uitschieter (>25%), een
   MAP-sprong op stilstand of verbindingsverlies. Die meldingen staan in de lijst als "automatisch · indicatief".
   Bij een grof ritme (opname: ≥ 0,8 s tussen toerentalmetingen) beoordeelt `_detect` geen toerentalsprong zolang de auto
@@ -157,6 +189,8 @@ aan `PROFILES` toe. Bij **diesel** staan de benzine-regels (lambda, brandstofcor
 | `server.py`, `static/index.html` | webinterface (alleen op 127.0.0.1) |
 | `feed.py`, `signalset.py`, `selftest_feed.py` | meekijken met een opname van het uitleesscript (`--follow`, `--replay`); `signalset.py` leest het signalenbestand van een auto |
 | `hub.py`, `selftest_hub.py` | schakelen tussen opname en kabel vanuit de pagina |
+| `snapshot.py`, `selftest_clear.py` | foutcodes wissen: momentopname vooraf/achteraf en de bewaakte wisstap |
+| `selftest_cable.py` | kabelmodus met leesplan (service 21) tegen de simulator |
 | `sim.py` | gesimuleerde ECU + nepkabel voor demo en tests |
 | `selftest.py` | test van alles tegen de simulator (`--quick` = alleen protocol) |
 | `kline_test.py` | go/no-go test van kabel + ECU met ruwe bytes |

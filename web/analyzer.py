@@ -7,6 +7,7 @@ import csv
 import json
 import os
 import queue
+import secrets
 import statistics
 import threading
 import time
@@ -15,6 +16,7 @@ from datetime import datetime
 
 import obd
 import signalset
+import snapshot
 import vehicle
 from kwp import BadFrame, ChecksumError, KLine, KLineError, Negative, NoEcho, NoResponse
 
@@ -29,6 +31,14 @@ ECT_WARM, ECT_HOT, ECT_BAD = 70, 100, 108
 MAP_IDLE_WARN, MAP_IDLE_BAD = 55, 70
 RPM_DIP, RPM_SURGE = 250, 300
 ENGINE_SETTLE = 10.0        # s na het starten van de motor: opstarten (toerentalpiek, MAP-val) is geen stotter
+CLEAR_MIN_VOLT = 11.8        # V: wissen schrijft in het ECU-geheugen; onder deze accuspanning (motor uit) weigeren we
+CLEAR_TOKEN_TTL = 300.0     # s: zolang is de momentopname geldig om te wissen
+CLEAR_QUIET = 3.0           # s: zo lang moet het toerental op nul staan voordat we wissen
+VOLT_KEYS = ("batt", "accuspanning")
+IDLE_GRACE = 3.0            # s na de laatste beweging (snelheid > 0) voordat het stationair beoordeeld wordt
+IDLE_TRIM = 2.4             # s: de allerlaatste metingen tellen niet mee; gas geven of wegrijden begint vóór de snelheid > 0 meldt
+IDLE_MIN_SAMPLES = 8        # zo veel stilstandsmetingen zijn nodig voor een oordeel over het stationair
+ELEVATED_RPM = 1500         # stilstaand: boven dit toerental geeft de bestuurder gas (geen stotter, geen stationair)
 COARSE_GAP = 0.8            # s tussen toerentalmetingen vanaf wanneer we het ritme 'grof' noemen (opname: 1,2 s)
 LEVELS = {"ok": 0, "warn": 1, "bad": 2}
 
@@ -45,6 +55,8 @@ class LinkLost(Exception):
 
 
 class Monitor:
+    is_feed = False                              # FeedMonitor (meekijken met een opname) zet dit op True
+
     def __init__(self, open_serial, log_dir, demo=False, log=print, profile="auto", probe_ident=False,
                  p4_ms=5.0, signals=None):
         self.open_serial = open_serial
@@ -92,8 +104,8 @@ class Monitor:
         self.cmds.put("ident_ext")
 
     def mark(self):
-        """Handmatig moment ('nu stotterde hij'): bewaart de 8 s ervoor en 3 s erna van alle waarden."""
-        self._record_event("handmatig", time.monotonic(), "Handmatig gemarkeerd: het stotterde nu")
+        """Annotatie door de gebruiker ('er is een probleem', van welke aard dan ook): bewaart de 8 s ervoor en 3 s erna."""
+        self._record_event("handmatig", time.monotonic(), "Annotatie: probleem")
 
     def _reset_session(self):
         self.identity = None
@@ -103,6 +115,8 @@ class Monitor:
         self.supported = []
         self.req_log = deque(maxlen=100)
         self.windows = []
+        self.clear = {"phase": "idle"}              # foutcodes wissen: idle | preparing | ready | clearing | done | error
+        self._clear_token = None
         self.engine_since = None
         self._rpm_low_since = None
         self.session_start = None
@@ -366,6 +380,10 @@ class Monitor:
                 self._read_dtcs(kl)
             elif cmd == "ident_ext":
                 self._probe_ident_ext(kl)
+            elif cmd == "clear_prepare":
+                self._clear_prepare(kl)
+            elif isinstance(cmd, tuple) and cmd[0] == "clear_run":
+                self._clear_run(kl, cmd[1])
 
     def _read_dtcs(self, kl):
         res = {"read_at": time.time(), "stored": [], "pending": [], "freeze": None, "error": None}
@@ -383,6 +401,190 @@ class Monitor:
             res[k] = [{"code": c, "text": obd.dtc_text(c)} for c in res[k]]
         with self.lock:
             self.dtc = res
+
+    # ---------- foutcodes wissen (zie README.md, "Foutcodes wissen") ----------
+    def clear_gates(self, now=None, ignore_busy=False):
+        """Redenen waarom wissen nu niet mag; lege lijst = alle voorwaarden kloppen. Alleen kabelmodus, verbonden,
+        motor uit (toerental ≥ CLEAR_QUIET s op nul), auto staat stil en de accuspanning is hoog genoeg."""
+        now = time.monotonic() if now is None else now
+        with self.lock:
+            if self.is_feed or self.status.get("feed"):
+                return ["Alleen in kabelmodus: bij meekijken is de kabel van het uitleesscript."]
+            why = []
+            if self.status.get("state") != "verbonden":
+                why.append("Niet verbonden met de ECU.")
+            if not ignore_busy and self.clear.get("phase") in ("preparing", "clearing"):
+                why.append("Er loopt al een actie.")
+            rpm = self.latest.get("rpm")
+            if rpm is None or now - rpm[0] > 5:
+                why.append("Toerental onbekend: ik kan niet zien of de motor uit is.")
+            else:
+                recent = [v for t, v in self.hist.get("rpm", ()) if t >= now - CLEAR_QUIET] or [rpm[1]]
+                if max(recent) > 50:
+                    why.append(f"De motor draait ({max(recent):.0f} rpm). Zet de motor uit, contact aan.")
+            sp = self.latest.get("speed")
+            if sp and now - sp[0] <= 10 and sp[1] > 0:
+                why.append(f"De auto rijdt ({sp[1]:.0f} km/u).")
+            volt = next((self.latest[k] for k in VOLT_KEYS if k in self.latest and now - self.latest[k][0] <= 15), None)
+            if volt is None:
+                why.append("Accuspanning onbekend: ik kan niet controleren of die hoog genoeg is.")
+            elif volt[1] <= CLEAR_MIN_VOLT:
+                why.append(f"Accuspanning {volt[1]:.2f} V is te laag (minimaal {CLEAR_MIN_VOLT:.1f} V). "
+                           "Laad of controleer de accu eerst.")
+            return why
+
+    def request_clear_prepare(self):
+        """Stap 1: momentopname maken. Geeft (http-code, body); de eigenlijke opname loopt in de meetlus."""
+        with self.lock:
+            reasons = self.clear_gates()
+            if reasons:
+                return 409, {"error": "Wissen kan nu niet.", "reasons": reasons}
+            self._clear_token = None
+            self.clear = {"phase": "preparing", "message": "Momentopname maken, dit duurt even…", "progress": ""}
+        self.cmds.put("clear_prepare")
+        return 202, {"queued": True}
+
+    def request_clear(self, token, confirm):
+        """Stap 2: wissen, alleen met de bevestiging en het id van een geldige momentopname (eenmalig)."""
+        now = time.monotonic()
+        with self.lock:
+            t = self._clear_token
+            if confirm is not True:
+                return 400, {"error": "Bevestiging ontbreekt."}
+            if not t or t["used"] or not isinstance(token, str) or not secrets.compare_digest(t["id"], token):
+                return 409, {"error": "Geen geldige momentopname. Maak eerst een momentopname."}
+            if now > t["expires"]:
+                return 409, {"error": "De momentopname is verlopen. Maak een nieuwe."}
+            reasons = self.clear_gates(now, ignore_busy=True)
+            if reasons:
+                return 409, {"error": "Wissen kan nu niet.", "reasons": reasons}
+            t["used"] = True
+            self.clear = {"phase": "clearing", "message": "Foutcodes wissen…", "progress": ""}
+        self.cmds.put(("clear_run", token))
+        return 202, {"queued": True}
+
+    def cancel_clear(self):
+        with self.lock:
+            if self.clear.get("phase") in ("ready", "done", "error"):
+                self._clear_token = None
+                self.clear = {"phase": "idle"}
+        return 200, {"cancelled": True}
+
+    def _clear_fail(self, message):
+        self.log(f"[wissen] {message}")
+        with self.lock:
+            self._clear_token = None
+            self.clear = {"phase": "error", "message": message}
+
+    def _clear_prepare(self, kl):
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        path = os.path.join(os.path.dirname(self.log_path), f"zelftest_wissen_{stamp}_voor.json")
+
+        def progress(text):
+            with self.lock:
+                self.clear["progress"] = text
+        try:
+            snap = snapshot.take(kl, f"wissen_{stamp}_voor", self.sigs, self._stop.is_set, progress)
+            snapshot.write(snap, path)
+        except (snapshot.SnapshotError, KLineError, OSError) as e:
+            return self._clear_fail(f"Momentopname mislukt, er wordt niets gewist: {e}")
+        rpm = snap.get("live_raw", {}).get("rpm")
+        if rpm and int(rpm, 16) / 4 > 50:
+            return self._clear_fail("De motor draaide tijdens de momentopname. Zet de motor uit, contact aan, en probeer opnieuw.")
+        with self.lock:
+            self._clear_token = {"id": secrets.token_hex(8), "path": path, "snap": snap, "used": False,
+                                 "expires": time.monotonic() + CLEAR_TOKEN_TTL, "summary": snapshot.summary(snap)}
+            self.clear = {"phase": "ready", "message": "Momentopname klaar. Lees wat er verloren gaat en bevestig."}
+        self.log(f"[wissen] momentopname klaar: {path}")
+
+    def _clear_run(self, kl, token):
+        with self.lock:
+            t = self._clear_token
+            if not t or t["id"] != token:
+                return self._clear_fail("Het wissen is afgebroken: de momentopname is niet meer geldig.")
+        reasons = self.clear_gates(ignore_busy=True)
+        if reasons:                                  # er is tijd verstreken sinds de bevestiging: nog één keer controleren
+            return self._clear_fail("Niet gewist: " + " ".join(reasons))
+        outcome, detail = None, ""
+        self.log("[wissen] mode 04 verzenden")
+        try:
+            obd.clear_dtcs(kl)
+            outcome = "gewist"
+        except Negative as e:
+            outcome = "geweigerd"
+            detail = {0x22: "De ECU weigert: voorwaarden niet juist (motor uit, contact aan?).",
+                      0x11: "De ECU kent mode 04 niet.", 0x12: "De ECU weigert mode 04 (niet ondersteund)."
+                      }.get(e.code, f"De ECU weigert: {e}")
+        except (NoResponse, BadFrame, KLineError) as e:
+            outcome, detail = "onduidelijk", f"Geen duidelijk antwoord van de ECU ({e}). Er is niet opnieuw gestuurd."
+        result = {"outcome": outcome, "message": detail, "voor_bestand": os.path.basename(t["path"]), "na_bestand": None}
+        if outcome != "geweigerd":
+            self._sleep(1.5 if outcome == "onduidelijk" else 0.3)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            na_path = os.path.join(os.path.dirname(self.log_path), f"zelftest_wissen_{stamp}_na.json")
+            try:
+                na = snapshot.take(kl, f"wissen_{stamp}_na", self.sigs, self._stop.is_set,
+                                   lambda text: self._set_progress(text))
+                snapshot.write(na, na_path)
+                result.update(na_bestand=os.path.basename(na_path), voor=t["summary"], na=snapshot.summary(na),
+                              verschil=snapshot.diff(t["snap"], na))
+                empty = not na["stored"] and not na["pending"] and na["dtc_count"] == 0
+                vs = t["summary"]
+                had_codes = bool(vs["stored"] or vs["pending"] or vs["mil"] or vs["dtc_count"])
+                if outcome == "onduidelijk" and not empty:
+                    result["outcome"] = outcome = "niet gewist"
+                    result["message"] += " De codes zijn teruggelezen: ze staan er nog."
+                elif outcome == "onduidelijk" and had_codes:
+                    result["outcome"] = outcome = "waarschijnlijk gewist"
+                    result["message"] += " De codes zijn teruggelezen: er staan er geen meer."
+                elif outcome == "onduidelijk" and "monitors" in result["verschil"]:
+                    # geen codes vooraf: een lege lijst zegt niets, maar teruggezette readiness-monitoren wel
+                    result["outcome"] = outcome = "waarschijnlijk gewist"
+                    result["message"] += (" Er stonden vooraf geen codes; wel zijn de readiness-monitoren teruggezet "
+                                          "(zie het voor/na-overzicht).")
+                elif outcome == "onduidelijk":
+                    result["outcome"] = outcome = "onbekend"
+                    result["message"] += (" Er stonden vooraf geen codes en aan de readiness is niets veranderd: ik kan niet "
+                                          "zien of het verzoek is aangekomen.")
+                elif not empty:
+                    result["message"] = "De ECU zei ja, maar er staan nog codes. Controleer de uitlezing."
+            except (snapshot.SnapshotError, KLineError, OSError) as e:
+                result["message"] += f" De controle achteraf is mislukt: {e}"
+        self._clear_log(result, t["path"])
+        with self.lock:
+            self._clear_token = None
+            self.clear = {"phase": "done", "message": result["message"] or "Gedaan.", "result": result}
+        self.log(f"[wissen] klaar: {outcome}")
+
+    def _set_progress(self, text):
+        with self.lock:
+            self.clear["progress"] = text
+
+    def _clear_log(self, result, voor_path):
+        entry = {"tijd": datetime.now().isoformat(timespec="seconds"), "actie": "foutcodes wissen (mode 04)",
+                 "uitkomst": result["outcome"], "opmerking": result["message"],
+                 "voor": os.path.basename(voor_path), "na": result.get("na_bestand"),
+                 "ecu": (self.identity or {}).get("cal_id")}
+        try:
+            with open(os.path.join(os.path.dirname(self.log_path), "acties.log"), "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as e:
+            self.log(f"actielog niet geschreven: {e}")
+
+    def _clear_view(self, now):
+        """Voor de pagina: toestand van het wissen (zonder het volledige bewijs), plus waarom het nu niet mag."""
+        t = self._clear_token
+        if self.clear.get("phase") == "ready" and t and now > t["expires"]:
+            self._clear_token = None
+            self.clear = {"phase": "idle", "message": "De momentopname is verlopen. Maak een nieuwe."}
+        c = {k: v for k, v in self.clear.items()}
+        t = self._clear_token
+        if c.get("phase") == "ready" and t:
+            c["prepared"] = {"id": t["id"], "expires_in": max(0, round(t["expires"] - now)), "summary": t["summary"],
+                             "file": os.path.basename(t["path"])}
+        c["gates"] = self.clear_gates(now)
+        c["min_volt"] = CLEAR_MIN_VOLT
+        return c
 
     # ---------- meetdata ----------
     def _record(self, key, v, now):
@@ -425,6 +627,29 @@ class Monitor:
         return x[1] if x and now - x[0] <= maxage else None
 
     # ---------- events (stotter-momenten vastleggen) ----------
+    def _idle_points(self, key, now, trim=IDLE_TRIM):
+        """Metingen van `key` uit de aaneengesloten stilstandsperiode vóór nu: pas IDLE_GRACE s na de laatste beweging, en
+        zonder de laatste IDLE_TRIM s. Een venster van vaste lengte telde ook het rijden vlak vóór het stoppen of na het
+        wegrijden mee en gaf bij elke stop een 'onrustig stationair' (18 van 20 meldingen in de rit van 24-11).
+        None als er geen snelheid bekend is: dan weten we niet wat stilstand is."""
+        sp = self.hist.get("speed")
+        if not sp:
+            return None
+        moved = max((t for t, v in sp if v > 0), default=None)
+        start = now - 15.0 if moved is None else max(now - 15.0, moved + IDLE_GRACE)
+        return [(t, v) for t, v in self.hist.get(key, ()) if start <= t <= now - trim]
+
+    @staticmethod
+    def _detrend(points):
+        """Afwijking van de rechte lijn door de punten: een toerental dat rustig daalt (koude motor, snel stationair) is niet
+        onrustig; een toerental dat schommelt wel."""
+        n = len(points)
+        mt = sum(t for t, _ in points) / n
+        mv = sum(v for _, v in points) / n
+        den = sum((t - mt) ** 2 for t, _ in points)
+        b = sum((t - mt) * (v - mv) for t, v in points) / den if den else 0.0
+        return [v - (mv + b * (t - mt)) for t, v in points]
+
     def _coarse(self, now):
         """Liggen de toerentalmetingen ruim een seconde uit elkaar (zoals in een opname met 1,2 s per ronde)?
         Dan zegt één sprong tussen twee metingen weinig: een gasstoot, optrekken en schakelen geven net zulke sprongen."""
@@ -469,7 +694,10 @@ class Monitor:
                     # Bij een grof ritme kan rijdend (optrekken, schakelen, koppeling) een toerentalsprong niet van een
                     # stotter worden onderscheiden: de eerste 1,2 s-opname gaf zo 7 "pieken" bij gewoon optrekken. Dan
                     # beoordelen we alleen stilstaand, en niet in de eerste seconden na het starten van de motor.
-                    blind = (self._coarse(now) and self._moving(now) is True) or self._settling(now) is True
+                    # Stilstaand en ver boven stationair is de bestuurder aan het gassen (gasklepmetingen komen eens per
+                    # seconde en missen zo'n stoot): dat is geen stotter. De 66 s kabelsessie van 24-11 gaf zo 2 foute meldingen.
+                    revving = self._moving(now) is False and max(peak, v) > ELEVATED_RPM
+                    blind = (self._coarse(now) and self._moving(now) is True) or self._settling(now) is True or revving
                     if peak >= 600 and v < 450 and not coasting:
                         self._record_event("rpm_dip", now, f"Bijna afgeslagen: {peak:.0f} → {v:.0f} rpm")
                     elif blind:
@@ -542,14 +770,25 @@ class Monitor:
         idle_rng = vehicle.PROFILES[self.profile_name]["idle_rpm"]
         petrol = not (self.identity or {}).get("diesel")      # lambda/trims/MAP-regels gelden voor benzine
 
-        # Stationair toerental
-        if idle:
-            r = vals("rpm", 15)
-            if len(r) >= 8:
-                sd, mn, mx = statistics.pstdev(r), min(r), max(r)
-                if sd > 60 or mx - mn > 250:
+        # Stationair toerental: alleen in een aaneengesloten stilstandsperiode, niet vlak na het starten van de motor
+        settling = self._settling(now) is True
+        known_speed = speed is not None
+        # een stilstandsvenster waarin het toerental boven ELEVATED_RPM kwam bevat gas geven (of de snelle stationair van een
+        # koude start): daar zeggen we niets over het stationair. Ook de laatste metingen tellen hier mee: gas geven begint daar.
+        tail = (self._idle_points("rpm", now, trim=0) if known_speed else self._window("rpm", 15, now)) if idle else []
+        revved = any(v > ELEVATED_RPM for _, v in tail)
+        stable_idle = idle and not settling and not revved
+        if stable_idle:
+            pts = self._idle_points("rpm", now) if known_speed else self._window("rpm", 15, now)
+            if len(pts) >= IDLE_MIN_SAMPLES:
+                r = [v for _, v in pts]
+                res = self._detrend(pts)
+                sd, rng = statistics.pstdev(res), max(res) - min(res)
+                mn, mx, dur = min(r), max(r), pts[-1][0] - pts[0][0]
+                if sd > 60 or rng > 250:
                     add("bad" if sd > 120 else "warn", "Onrustig stationair toerental",
-                        f"Toerental schommelt tussen {mn:.0f} en {mx:.0f} rpm (σ {sd:.0f}) in 15 s.", ["rpm"])
+                        f"Toerental schommelt tussen {mn:.0f} en {mx:.0f} rpm (σ {sd:.0f} rond het verloop) in {dur:.0f} s "
+                        "stilstand.", ["rpm"])
                 med = statistics.median(r)
                 if idle_rng and warm and not idle_rng[0] <= med <= idle_rng[1]:
                     add("warn", "Stationair toerental buiten verwacht bereik",
@@ -599,14 +838,17 @@ class Monitor:
 
         # Inlaatdruk op stationair
         mp = fresh("map") if petrol else None
-        if idle and warm and mp is not None and mp > MAP_IDLE_WARN:
+        if petrol and stable_idle and known_speed:                  # het midden van de stilstandsperiode, niet de laatste meting
+            mpts = [v for _, v in self._idle_points("map", now)]
+            mp = statistics.median(mpts) if len(mpts) >= 3 else None
+        if stable_idle and warm and mp is not None and mp > MAP_IDLE_WARN:
             add("bad" if mp > MAP_IDLE_BAD else "warn", f"Hoge inlaatdruk op stationair ({mp:.0f} kPa)",
                 "Gezond stationair ligt meestal rond 30–45 kPa. Hoger past bij vacuümlek, "
                 "klepslijtage of slechte sensor.", ["map"])
 
         # Gasklep
-        t = vals("tps", 10)
-        if idle and len(t) >= 8 and max(t) - min(t) > 6:
+        t = [v for _, v in self._idle_points("tps", now)] if (stable_idle and known_speed) else vals("tps", 10)
+        if stable_idle and len(t) >= 8 and max(t) - min(t) > 6:
             add("warn", "Gasklepsignaal springt op stationair",
                 f"TPS varieert {min(t):.1f}–{max(t):.1f}% terwijl de auto stilstaat "
                 "(mogelijk slechte sensor/aansluiting, tenzij je gas gaf).", ["tps"])
@@ -691,6 +933,7 @@ class Monitor:
                 "link": {"ok": ok, "total": len(self.req_log)},
                 "session_secs": round(now - self.session_start, 0) if self.session_start else None,
                 "log_path": self.log_path,
+                "clear": self._clear_view(now),
             }
 
     def _stale_after(self, key):

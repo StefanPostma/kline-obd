@@ -20,7 +20,7 @@ import signalset
 import vehicle
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MARKS_DIR = os.path.join(HERE, "logs")     # markeringen ("nu stotterde hij") komen hier, nooit in de map van de opname
+MARKS_DIR = os.path.join(HERE, "logs")     # annotaties van de gebruiker (knop "Annotatie: probleem") komen hier, nooit in de map van de opname
 LIVE_MAX_AGE = 20.0        # een bestand dat langer niet groeit is geen lopende opname
 STALL_AFTER = 15.0         # zo lang zonder nieuwe regels = de opname krijgt geen antwoord van de ECU
 DEFAULT_PATTERNS = ["*.jsonl"]
@@ -85,6 +85,8 @@ class FeedMonitor(analyzer.Monitor):
     sneller dan echte tijd); anders wordt een lopende opname gevolgd. signals: eigen signalenbestand i.p.v. dat uit het
     profiel."""
 
+    is_feed = True
+
     def __init__(self, source=None, replay=False, speedup=1.0, profile="auto", signals=None, log=print):
         pname = vehicle.pick_profile(profile)
         cfg = vehicle.PROFILES[pname].get("feed", {})
@@ -129,7 +131,7 @@ class FeedMonitor(analyzer.Monitor):
         if self.replay or not self.cur_path:
             return
         line = json.dumps({"e": round(time.time(), 3), "t": self.last_row_t, "opname": self.feed_name,
-                           "tekst": "nu stotterde hij"})
+                           "tekst": "annotatie: probleem"})
         try:
             os.makedirs(MARKS_DIR, exist_ok=True)
             stem = os.path.splitext(self.feed_name)[0]

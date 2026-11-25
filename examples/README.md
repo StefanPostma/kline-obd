@@ -7,7 +7,7 @@ starting with a cold engine.
 | --- | --- |
 | `rit_voorbeeld.jsonl` | the recording, unchanged; the format is in `../docs/opnameformaat.md` |
 | `rit_voorbeeld.meta.json` | ECU part number, software and calibration id, and the read plan that was used |
-| `rit_voorbeeld.markeringen.log` | eight times "nu stotterde hij" ("it stuttered just now"), pressed by the driver in the web page |
+| `rit_voorbeeld.markeringen.log` | eight times "nu stotterde hij" ("it stuttered just now"), pressed by the driver in the web page; the button is now called "Annotatie: probleem" and writes that text |
 
 ```
 ../kline-obd web --replay rit_voorbeeld.jsonl --speedup 25 --profile matiz08

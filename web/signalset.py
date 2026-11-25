@@ -21,6 +21,7 @@ Schema van een signalenbestand (Python-module, bv. vehicles/matiz_m200_08.py):
     ROULEREND_BLOKKEN = [id, ...]       gelezen worden, blokken waarvan er elke ronde één aan de beurt is,
     PID_ELKE_RONDE = [pid, ...]         standaard-PID's elke ronde en
     PID_ROULEREND = [pid, ...]          standaard-PID's waarvan er elke ronde één aan de beurt is
+    ALLE_BLOKKEN = [id, ...]            (optioneel) alle lokale ID's die de ECU kent; voor de momentopname vóór/na foutcodes wissen
                 Zonder deze namen leest de kabelmodus alleen de standaard-PID's die de ECU ondersteunt. Alleen blokken
                 waar dit bestand een signaal voor heeft worden opgevraagd.
 
@@ -59,6 +60,7 @@ class SignalSet:
         self.highlight = list(cfg.get("highlight", []))
         self.defs, self.block_len, self._vensters, self.window_labels, self.window_notes = {}, 32, None, {}, {}
         self.plan = None                            # leesplan voor de kabelmodus, zie het schema bovenaan
+        self.all_blocks = []                        # ALLE_BLOKKEN: alle lokale ID's voor een volledige momentopname
         self.error = None
         self.path = os.path.expanduser(signals_path or cfg.get("signals") or "") or None
         if self.path:
@@ -73,6 +75,7 @@ class SignalSet:
                 self.tps_cfg = getattr(mod, "TPS", None) or self.tps_cfg
                 self.highlight = list(getattr(mod, "HIGHLIGHT", self.highlight))
                 self.plan = self._read_plan(mod)
+                self.all_blocks = [i for i in (getattr(mod, "ALLE_BLOKKEN", None) or []) if isinstance(i, int) and 0 <= i <= 255]
             except Exception as e:                  # bestand weg of stuk: de pagina werkt dan alleen met standaard-PID's
                 self.error = f"signalenbestand {self.path} niet geladen: {type(e).__name__}: {e}"
                 log(self.error)

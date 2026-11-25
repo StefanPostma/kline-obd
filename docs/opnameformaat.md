@@ -10,6 +10,11 @@ Er kan maar één programma tegelijk op de K-line. Tijdens een rit heeft de uitl
 webpagina kijkt dan mee met `server.py --follow` en opent de poort niet. De pagina weigert naar "Kabel" te wisselen
 zolang een opname de poort open heeft.
 
+Beide delen sturen alleen leesverzoeken, met één uitzondering: de webpagina kan in kabelmodus foutcodes wissen (OBD
+modus 04), na een momentopname en een bevestiging in twee stappen. Dat verzoek gaat één keer de lijn op en wordt nooit
+herhaald; een terugval op KWP-service 14 is er bewust niet. Alles wat verder gaat dan lezen (aansturen, leerwaarden
+wissen) hoort in het opdrachtenkanaal van de uitlezer en is niet gebouwd.
+
 ## 2. Een opname
 
 Eén JSON-regel per ronde:
@@ -44,6 +49,7 @@ Alles staat in de datamap (`recordings/`, of `KLINE_DATA`).
 | `<opname>.meta.json` | zijbestand, zie 4 |
 | `<opname>.fouten.log` | elke leesfout: tijd, verzoek, poging, soort |
 | `zelftest_<label>.json` | momentopname van foutcodes, monitors en blokken |
+| `web/logs/zelftest_wissen_<tijd>_voor.json`, `..._na.json` | dezelfde momentopname, door de webpagina gemaakt voor en na het wissen; `selftest_diff.py` leest ze |
 | `live.json` | laatste waarden van de lopende opname, elke ronde atomair vervangen; hulpmiddel, geen contract |
 
 Alleen opnames mogen op `rit*.jsonl` of `egr_*.jsonl` passen: de webpagina volgt het nieuwste bestand met zo'n naam.
@@ -62,14 +68,15 @@ Het ruwe identiteitsantwoord staat er bewust niet in, want daarin staat het seri
 
 ## 5. Markeringen
 
-De knop "Nu stotterde hij" in de webpagina schrijft één JSON-regel per druk in `web/logs/<opname zonder
+De knop "Annotatie: probleem" in de webpagina schrijft één JSON-regel per druk in `web/logs/<opname zonder
 extensie>.markeringen.log`:
 
 ```json
-{"e": 1795523120.8, "t": 409.3, "opname": "rit_koud.jsonl", "tekst": "nu stotterde hij"}
+{"e": 1795523120.8, "t": 409.3, "opname": "rit_koud.jsonl", "tekst": "annotatie: probleem"}
 ```
 
-De opname zelf heeft één schrijver en wordt nooit aangepast. `rit_report.py` zoekt de markeringen naast de opname en in
+Oudere logs, zoals de voorbeeldrit, hebben als tekst `nu stotterde hij`: zo heette de knop eerst. De opname zelf heeft
+één schrijver en wordt nooit aangepast. `rit_report.py` zoekt de markeringen naast de opname en in
 `web/logs/`, en legt elke markering naast de meetdata van de 8 s ervoor en 3 s erna.
 
 ## 6. Het voertuigbestand

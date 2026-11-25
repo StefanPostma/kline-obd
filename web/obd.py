@@ -255,6 +255,17 @@ def read_dtcs(kl, service=0x03):
     return decode_dtcs(p[1:])
 
 
+def clear_dtcs(kl):
+    """Mode 04: wist opgeslagen en pending codes, freeze frame, MIL en readiness. Het ENIGE verzoek in dit project dat de ECU
+    verandert (zie README.md, "Foutcodes wissen"); alleen aanroepen via analyzer.Monitor, na de controles en de momentopname daar.
+
+    Bewust zonder herhaling (retries=0): na een verloren antwoord weten we niet of de ECU gewist heeft, dus we sturen niet
+    blind opnieuw maar lezen terug. `7F 04 78` (antwoord volgt) wacht kwp.request al af. Geen terugval naar service 14."""
+    p = kl.request(bytes([0x04]), expect=1, timeout=2.0, retries=0)
+    if p[:1] != b"\x44":
+        raise BadFrame(f"onverwacht antwoord op mode 04: {p.hex(' ')}")
+
+
 def read_freeze(kl):
     """Freeze frame (frame 0): de code die hem veroorzaakte plus de belangrijkste waarden."""
     out = {}

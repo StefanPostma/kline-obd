@@ -251,7 +251,7 @@ if C:
     print(f"  lambda na kat in closed loop: {100 * sum(1 for x in C if x['o2r'] < 0.07) / len(C):.0f} % onder 0,07 V (fout bij 40 s aaneen), "
           f"{100 * sum(1 for x in C if 0.352 <= x['o2r'] <= 0.499) / len(C):.0f} % in de dode band")
 
-# ---- 9. markeringen uit de webpagina ("nu stotterde hij") ------------------------------------------------------
+# ---- 9. markeringen uit de webpagina (knop "Annotatie: probleem") ------------------------------------------------------
 # De webpagina schrijft elke druk op de knop als JSON-regel {"e", "t", "opname", "tekst"} in zijn eigen logs-map
 # (zie docs/opnameformaat.md). Hier wordt elke markering naast de meetdata van de 8 s ervoor en 3 s erna gelegd.
 stem = os.path.splitext(os.path.basename(path))[0]
