@@ -142,8 +142,9 @@ aan `PROFILES` toe. Bij **diesel** staan de benzine-regels (lambda, brandstofcor
   verzoek (ISO-voorschrift, voorkomt "ECU zwijgt"); `--p4-ms 0` is sneller maar niet elke ECU verdraagt dat.
 - Welke waarden de ECU levert (PID's) weet pas de auto zelf; de pagina toont wat de ECU opgeeft.
 - De init-methoden (`fast-break`, `fast-byte`, `slow-5baud`), de framing en de identificatie zijn getest tegen de
-  simulator (`selftest.py`). Op de echte Matiz is `fast-break` gemeten (zie boven); de doorgevoerde timeout-fix in
-  `kwp.py` en de 09-00-fix in `obd.py` zijn nog niet op de auto geprobeerd.
+  simulator (`selftest.py`). Op de echte Matiz is `fast-break` gemeten (zie boven); de timeout-fix in `kwp.py` en de
+  09-00-fix in `obd.py` zijn bevestigd in een kabelsessie van 24-11 (66 s, 100 van 100 verzoeken goed, kalibratie-ID
+  via mode 09 gelezen; de ECU-naam kwam toen niet binnen).
 
 ## Bestanden
 
